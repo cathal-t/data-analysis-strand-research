@@ -1,14 +1,14 @@
-# ── Python bytecode ───────────────────────────────────────────
+# ── Python byte-code ─────────────────────────────
 __pycache__/
 *.py[cod]
 
-# ── Poetry & venv artefacts ───────────────────────────────────
+# ── Poetry & venv artefacts ──────────────────────
 *.egg-info/
 .venv/
 
-# ── analysis outputs ──────────────────────────────────────────
+# ── analysis outputs (sample results) ────────────
 tests/fixtures/**/results/
 
-# ── OS cruft ──────────────────────────────────────────────────
+# ── OS cruft ─────────────────────────────────────
 .DS_Store
 Thumbs.db
