@@ -1,16 +1,14 @@
-@'
-# ── Python byte-code ───────────────
+# ── Python byte-code ────────────────────────────────
 __pycache__/
 *.py[cod]
 
-# ── Poetry & venv artefacts ────────
+# ── Poetry / virtual-env artefacts ──────────────────
 *.egg-info/
 .venv/
 
-# ── analysis outputs (sample) ──────
+# ── analysis outputs (sample fixture results) ───────
 tests/fixtures/**/results/
 
-# ── OS cruft ───────────────────────
+# ── OS cruft ────────────────────────────────────────
 .DS_Store
 Thumbs.db
-'@ | Out-File -Encoding utf8 .gitignore
