@@ -28,3 +28,5 @@ Thumbs.db
 tests/fixtures/**/results/     # overlay.html, stats.xlsx, …
 *.html
 *.xlsx
+# ─── raw experiment data ──────────────────────────────────────────
+data/
