@@ -14,6 +14,7 @@ from .tensile import TensileTest
 from .analysis import build_summary, build_stats, long_to_wide
 from .io.export import save_metrics, save_stats_wide
 from .plots import make_overlay, make_violin_grid
+from collections import OrderedDict
 
 
 # ───────────────────────── click root ─────────────────────────
@@ -75,16 +76,16 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
         curves_df = pd.DataFrame(curves_rows)
 
         # 4 ── wide stats table ----------------------------------------------
-        METRICS = {
-            "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
-            "Yield_Gradient_MPa_perc": "Yield-grad. (MPa / %ε)",
-            "Post_Gradient_MPa_perc": "Post-grad. (MPa / %ε)",
-            "Break_Stress_MPa": "Break stress (MPa)",
-            "Break_Strain_%": "Break strain (%)",
-            "UTS_MPa": "UTS",
-        }
+        METRICS: "OrderedDict[str, str]" = OrderedDict([
+            ("Elastic_Modulus_GPa",      "Elastic modulus (GPa)"),
+            ("Yield_Gradient_MPa_perc",  "Yield-grad. (MPa / %ε)"),
+            ("Post_Gradient_MPa_perc",   "Post-grad. (MPa / %ε)"),
+            ("Break_Stress_MPa",         "Break stress (MPa)"),
+            ("Break_Strain_%",           "Break strain (%)"),
+            # ("UTS_MPa",               "UTS"),   # ← left commented-out to drop
+        ])
         stats_long = build_stats(summary, conds, METRICS)
-        stats_wide = long_to_wide(stats_long, summary, control_name)
+        stats_wide = long_to_wide(stats_long, summary, control_name, METRICS)
 
         # 5 ── output dir -----------------------------------------------------
         out_dir = out_dir or input_dir / "results"
