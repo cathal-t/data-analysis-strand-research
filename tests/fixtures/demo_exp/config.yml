@@ -1,0 +1,7 @@
+conditions:
+  - name: Straight Bleached Untreated
+    slots: 1
+    control: true        # exactly one must be true
+  - name: Straight Bleached Olaplex
+    slots: 2-3
+    control: false

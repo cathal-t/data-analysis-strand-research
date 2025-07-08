@@ -1,47 +1,29 @@
-"""
-hairmech.cli
-============
-
-Command-line interface for the Hair-mechanics toolkit.
-
-Usage
------
-
-# basic – writes results/ under the input folder
-poetry run hairmech run -i <experiment_folder>
-
-# explicit output dir
-poetry run hairmech run -i <in> -o <out_dir>
-
-Future sub-commands
--------------------
-• ``hairmech dash``   – interactive Dash GUI (to be added).
-"""
 from __future__ import annotations
 
-import json
-from pathlib import Path
 import sys
 import traceback
+from pathlib import Path
+from typing import List
+
 import click
 import pandas as pd
 
-from .io.config import load_config
+from .io.config import load_config, ConfigError
 from .dimensional import DimensionalData
 from .tensile import TensileTest
-from .analysis import build_summary, build_stats
+from .analysis import build_summary, build_stats, long_to_wide
 from .io.export import save_metrics, save_stats_wide
 from .plots import make_overlay, make_violin_grid
 
 
-# ───────────────────────── click setup ─────────────────────────
+# ───────────────────────── click root ─────────────────────────
 @click.group()
 def cli() -> None:  # pragma: no cover
     """Hair-mech command-line entry point."""
     pass
 
 
-# ----------------------------------------------------------------
+# ─────────────────────────── run ──────────────────────────────
 @cli.command()
 @click.option(
     "-i",
@@ -49,35 +31,34 @@ def cli() -> None:  # pragma: no cover
     "input_dir",
     required=True,
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Experiment folder (contains Dimensional_Data.txt, Tensile_Data.txt, "
-    "and config.yml).",
+    help="Experiment folder (Dimensional_Data.txt, Tensile_Data.txt, config.yml)",
 )
 @click.option(
     "-o",
     "--out",
     "out_dir",
     type=click.Path(file_okay=False, path_type=Path),
-    help="Output directory (default: <input>/results).",
+    help="Output directory (default: <input>/results)",
 )
 def run(input_dir: Path, out_dir: Path | None) -> None:
     """
-    Batch-run the full pipeline: read TXT files, compute metrics & stats,
-    generate plots, and write Excel/HTML to *out_dir*.
+    Run the full pipeline and write Excel + Plotly HTML to *out_dir*.
     """
     try:
-        # 1 ── load user config ------------------------------------------------
-        conds = load_config(input_dir)  # list[Condition]
+        # 1 ── user config ----------------------------------------------------
+        conds = load_config(input_dir)           # list[Condition]
         control_name = next(c.name for c in conds if c.is_control)
         slot_to_cond = {s: c.name for c in conds for s in c.slots}
 
-        # 2 ── read raw files ---------------------------------------------------
+        # 2 ── raw input ------------------------------------------------------
         areas = DimensionalData(input_dir / "Dimensional_Data.txt").map
         tensile = TensileTest(input_dir / "Tensile_Data.txt")
 
-        # 3 ── metrics + tidy curves -------------------------------------------
-        summary = build_summary(areas, tensile, slot_to_cond)
+        # 3 ── per-slot metrics & tidy curves --------------------------------
+        # NOTE: build_summary now takes the Condition list, not a dict
+        summary = build_summary(areas, tensile, conds)
 
-        curves_rows = []
+        curves_rows: List[dict] = []
         for slot, df_raw in tensile.per_slot():
             if slot not in areas or slot not in slot_to_cond:
                 continue
@@ -93,7 +74,7 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
             )
         curves_df = pd.DataFrame(curves_rows)
 
-        # 4 ── stats-wide table -------------------------------------------------
+        # 4 ── wide stats table ----------------------------------------------
         METRICS = {
             "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
             "Yield_Gradient_MPa_perc": "Yield-grad. (MPa / %ε)",
@@ -102,34 +83,48 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
             "Break_Strain_%": "Break strain (%)",
             "UTS_MPa": "UTS",
         }
-        stats_wide = build_stats(summary, control_name, METRICS)
+        stats_long = build_stats(summary, conds, METRICS)
+        stats_wide = long_to_wide(stats_long, summary, control_name)
 
-        # 5 ── output dir -------------------------------------------------------
+        # 5 ── output dir -----------------------------------------------------
         out_dir = out_dir or input_dir / "results"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 6 ── Excel files ------------------------------------------------------
+        # 6 ── Excel ----------------------------------------------------------
         save_metrics(summary, out_dir / "metrics.xlsx")
         save_stats_wide(stats_wide, control_name, out_dir / "stats.xlsx")
         click.echo(f"✓ Excel written → {out_dir}")
 
-        # 7 ── plots ------------------------------------------------------------
-        fig_overlay = make_overlay(curves_df, conds)
-        fig_violin = make_violin_grid(summary, conds)
-        fig_overlay.write_html(out_dir / "overlay.html", include_plotlyjs="cdn")
-        fig_violin.write_html(out_dir / "violin_grid.html", include_plotlyjs="cdn")
+        # 7 ── Plotly HTML ----------------------------------------------------
+        make_overlay(curves_df, conds).write_html(
+            out_dir / "overlay.html", include_plotlyjs="cdn"
+        )
+        make_violin_grid(summary, conds).write_html(
+            out_dir / "violin_grid.html", include_plotlyjs="cdn"
+        )
         click.echo(f"✓ Plots written → {out_dir}")
 
+    # ---------- friendly error messages ------------------------------------
+    except FileNotFoundError:
+        click.echo(f"config.yml not found in {input_dir}", err=True)
+        sys.exit(1)
+    except ConfigError as err:
+        click.echo(str(err), err=True)
+        sys.exit(1)
     except Exception as exc:  # pragma: no cover
-        click.echo("✖ Unhandled error - see traceback below", err=True)
+        click.echo("✖ Unhandled error – see traceback below", err=True)
         traceback.print_exception(exc, file=sys.stderr)
         sys.exit(1)
 
 
 # ---------------------------------------------------------------------
-def _main():  # pragma: no cover
-    """Entry-point wrapper for ``python -m hairmech``."""
+def _main() -> None:  # pragma: no cover
+    """Entry-point for `python -m hairmech`."""
     cli()
+
+
+# legacy alias so tools/tests looking for cli.main still work
+main = _main  # type: ignore
 
 
 if __name__ == "__main__":  # pragma: no cover
