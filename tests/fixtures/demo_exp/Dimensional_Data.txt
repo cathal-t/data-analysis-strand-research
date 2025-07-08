@@ -1,0 +1,19 @@
+Dimensional Data Report Version: 3.0
+Source File: C:\Users\catha\OneDrive\Documents\HR_20250207_Curly\HR_20250207_Curly_Dimensional.uvc
+Record	Description	Slice No.	Slice Position	Start Angle	End Angle	Elapsed Time	Cross-Sectional Area	Mean Diameter	Max. Diameter	Min. Diameter	Std. Deviation	Measurements
+				Degrees	Degrees	Seconds	Sq.Microns	Microns	Microns	Microns
+1	Slot 1 : FDAS770 Double-Ended	1	0	0	360	0	3300.7	68.19	82.50	50.94	10.5450	224	
+1	Slot 1 : FDAS770 Double-Ended	2	144	0	360	0	3587.3	69.90	85.55	53.39	11.2749	221	
+1	Slot 1 : FDAS770 Double-Ended	3	288	0	360	0	3707.2	70.50	86.15	54.79	11.0550	221	
+1	Slot 1 : FDAS770 Double-Ended	4	432	0	360	0	4042.9	73.59	89.29	57.65	11.3700	215	
+1	Slot 1 : FDAS770 Double-Ended	5	576	0	360	0	3924.8	72.75	87.84	56.89	11.1350	213	
+2	Slot 2 : FDAS770 Double-Ended	1	0	0	360	163	5017.8	80.90	90.75	70.40	6.9050	218	
+2	Slot 2 : FDAS770 Double-Ended	2	144	0	360	163	4727.2	79.50	85.80	70.15	5.4500	218	
+2	Slot 2 : FDAS770 Double-Ended	3	288	0	360	163	4607.0	78.69	88.34	66.40	7.2049	213	
+2	Slot 2 : FDAS770 Double-Ended	4	432	0	360	163	4816.6	79.30	90.40	67.84	7.5599	210	
+2	Slot 2 : FDAS770 Double-Ended	5	576	0	360	163	4888.9	80.00	89.50	69.55	6.7500	211	
+3	Slot 3 : FDAS770 Double-Ended	1	0	0	360	327	4008.6	73.00	88.15	57.90	10.6899	216	
+3	Slot 3 : FDAS770 Double-Ended	2	144	0	360	327	4047.7	72.94	87.35	59.00	9.9250	215	
+3	Slot 3 : FDAS770 Double-Ended	3	288	0	360	327	3476.1	70.60	83.35	53.10	9.6399	212	
+3	Slot 3 : FDAS770 Double-Ended	4	432	0	360	327	3703.2	73.65	88.05	53.55	11.6649	210	
+3	
