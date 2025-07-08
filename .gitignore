@@ -1,14 +1,30 @@
-# ── Python byte-code ────────────────────────────────
+# ─────────────────────────────
+#  Python & build artefacts
+# ─────────────────────────────
 __pycache__/
 *.py[cod]
-
-# ── Poetry / virtual-env artefacts ──────────────────
+*.pyo
+*.so
+*.egg
 *.egg-info/
+dist/
+build/
+
+# Poetry in-project virtual-env
 .venv/
 
-# ── analysis outputs (sample fixture results) ───────
-tests/fixtures/**/results/
-
-# ── OS cruft ────────────────────────────────────────
+# ─────────────────────────────
+#  Editor / OS miscellany
+# ─────────────────────────────
+*.swp
+*.swo
+*.bak
 .DS_Store
 Thumbs.db
+
+# ─────────────────────────────
+#  Generated analysis outputs
+# ─────────────────────────────
+tests/fixtures/**/results/     # overlay.html, stats.xlsx, …
+*.html
+*.xlsx
