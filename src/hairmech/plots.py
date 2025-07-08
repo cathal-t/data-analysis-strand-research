@@ -138,45 +138,65 @@ _METRICS: Dict[str, str] = {
 }
 
 
-def make_violin_grid(
-    summary_df: pd.DataFrame,
-    conditions: Sequence[Condition],
-) -> go.Figure:
-    """
-    Parameters
-    ----------
-    summary_df
-        Per-slot summary table from ``analysis.build_summary``.
-    conditions
-        Same list – used for legend colouring.
-    """
-    palette = _palette(len(conditions))
-    colour = {c.name: palette[i] for i, c in enumerate(conditions)}
+# ────────────────────────────────────────────────────────────────────
+# Make 3 × 2 violin grid — identical to the original notebook
+# -------------------------------------------------------------------
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
 
-    N_ROWS, N_COLS = 3, 2
-    cat = make_subplots(
-        rows=N_ROWS,
-        cols=N_COLS,
-        subplot_titles=list(_METRICS.values()),
+SAFE = ["#3E79F7", "#F75F00", "#8E44AD", "#2ECC71",
+        "#F1C40F", "#16A085", "#E74C3C", "#34495E"]
+
+def _rgba(rgb01, alpha=1.0):
+    r, g, b = [int(v * 255) for v in rgb01]
+    return f"rgba({r},{g},{b},{alpha})"
+
+def _hex_to_rgb01(hex_):
+    return tuple(int(hex_[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+
+def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Figure:
+    """
+    3 × 2 grid of metric distributions – visually identical to the Jupyter notebook.
+    """
+    # ---- palette identical to notebook ------------------------------------
+    metrics = {
+        "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
+        "Yield_Gradient_MPa_perc": "Yield-grad. (MPa / %ε)",
+        "Post_Gradient_MPa_perc": "Post-grad. (MPa / %ε)",
+        "Break_Stress_MPa": "Break stress (MPa)",
+        "Break_Strain_%": "Break strain (%)",
+    }
+    n_rows, n_cols = 3, 2
+
+    cond_names = [c.name for c in conds]
+    palette = SAFE[: len(cond_names)]
+    color_lut = dict(zip(cond_names, palette))
+
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=list(metrics.values()),
         horizontal_spacing=0.11,
         vertical_spacing=0.13,
         shared_xaxes=True,
     )
 
-    # violin traces --------------------------------------------------------
-    for idx, (key, nice) in enumerate(_METRICS.items()):
-        r, c = divmod(idx, N_COLS)
-        r, c = r + 1, c + 1
-        for cond in conditions:
-            vals = summary_df[summary_df["Condition"] == cond.name][key]
-            cat.add_trace(
+    # ---- violin traces ----------------------------------------------------
+    for idx, (key, ttl) in enumerate(metrics.items()):
+        r, c = divmod(idx, n_cols)
+        r += 1
+        c += 1
+        for cond in cond_names:
+            vals = summary_df[summary_df["Condition"] == cond][key]
+            fig.add_trace(
                 go.Violin(
                     y=vals,
-                    name=cond.name,
-                    legendgroup=cond.name,
+                    name=cond,
+                    legendgroup=cond,
                     showlegend=False,
-                    line_color=colour[cond.name],
-                    fillcolor=rgba(hex_to_rgb01(colour[cond.name][1:]), 0.18),
+                    line_color=color_lut[cond],
+                    fillcolor=_rgba(_hex_to_rgb01(color_lut[cond].lstrip("#")), 0.18),
                     meanline_visible=True,
                     points="all",
                     width=0.6,
@@ -185,19 +205,19 @@ def make_violin_grid(
                 row=r,
                 col=c,
             )
-        cat.update_yaxes(title_text=nice, row=r, col=c)
-        cat.update_xaxes(visible=False, row=r, col=c)
+        fig.update_yaxes(title_text=ttl, row=r, col=c)
+        fig.update_xaxes(visible=False, row=r, col=c)
 
-    # consolidated legend (markers only) ----------------------------------
-    for cond in conditions:
-        cat.add_trace(
+    # ---- consolidated legend (markers only) ------------------------------
+    for cond, col_hex in color_lut.items():
+        fig.add_trace(
             go.Scatter(
                 x=[None],
                 y=[None],
                 mode="markers",
-                marker=dict(size=10, color=colour[cond.name]),
-                name=cond.name,
-                legendgroup=cond.name,
+                marker=dict(size=10, color=col_hex),
+                name=cond,
+                legendgroup=cond,
                 showlegend=True,
                 hoverinfo="skip",
             ),
@@ -205,24 +225,32 @@ def make_violin_grid(
             col=1,
         )
 
-    # layout --------------------------------------------------------------
-    cat.update_layout(
+    # ---- layout identical to notebook ------------------------------------
+    control_name = next(c.name for c in conds if c.is_control)
+    fig.update_layout(
         template="plotly_white",
         height=900,
         width=1050,
         margin=dict(t=100, l=70, r=170, b=70),
         title=dict(
-            text="<b>Mechanical metric distributions</b>",
-            x=0.5, y=0.98, xanchor="center", font=dict(size=18),
+            text=f"<b>Mechanical metric distributions</b><br>"
+                 f"<sup>Control = {control_name}</sup>",
+            x=0.5,
+            y=0.98,
+            xanchor="center",
+            font=dict(size=18),
         ),
         legend=dict(
             orientation="v",
-            yanchor="top", y=1,
-            xanchor="left", x=1.02,
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
             bgcolor="rgba(255,255,255,0.9)",
             borderwidth=1,
             itemsizing="constant",
             tracegroupgap=4,
         ),
     )
-    return cat
+
+    return fig

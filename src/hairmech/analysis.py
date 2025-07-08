@@ -1,12 +1,15 @@
 """
-High-level analysis helpers:
+High-level analysis helpers
+===========================
 
-* build_summary  – per-slot mechanical metrics
-* build_stats    – Welch-t / Cohen-d long table
-* long_to_wide   – pivot to the 2-level “wide” table for Excel export
+* **build_summary** – per-slot mechanical metrics
+* **build_stats**   – Welch-t / Cohen-d long table
+* **long_to_wide**  – pivot to the 2-level “wide” table for Excel export
 """
+
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Dict, List
 
 import numpy as np
@@ -14,43 +17,49 @@ import pandas as pd
 from scipy.stats import ttest_ind  # noqa: WPS433
 
 from .io.config import Condition
-from .util import post_gradient
 from .tensile import TensileTest
+from .util import post_gradient
+
+# ────────────────────────── internal helpers ──────────────────────────
 
 
-# ───────────────────────────────── internal helpers ──────────────────
 def _slots_to_condition_map(conditions: List[Condition]) -> Dict[int, str]:
-    return {s: c.name for c in conditions for s in c.slots}
+    """Expand each Condition’s slot range → {slot_num: condition_name}."""
+    return {slot: c.name for c in conditions for slot in c.slots}
 
 
 def _control_name(conditions: List[Condition]) -> str:
+    """Return the (single) control name, validated in load_config()."""
     ctrls = [c.name for c in conditions if c.is_control]
-    if len(ctrls) != 1:  # should already be validated in load_config
+    if len(ctrls) != 1:  # pragma: no cover
         raise ValueError("Exactly one control condition is required")
     return ctrls[0]
 
 
-# ─────────────────────────────────── summary ──────────────────────────
+# ─────────────────────────────── summary ──────────────────────────────
+
+
 def build_summary(
     areas_map: Dict[int, float],
     tensile: TensileTest,
     conditions: List[Condition],
 ) -> pd.DataFrame:
     """
-    Iterate over all slots, compute metrics, return tidy DataFrame.
+    Iterate over all slots, compute metrics, and return a tidy DataFrame
+    indexed by **Slot**.
     """
     slot_to_cond = _slots_to_condition_map(conditions)
+    rows: list[dict] = []
 
-    rows = []
     for slot, df_raw in tensile.per_slot():
         if slot not in areas_map or slot not in slot_to_cond:
             continue
 
-        df = tensile.stress_strain(df_raw, areas_map[slot])
-        if df.empty:
+        df_proc = tensile.stress_strain(df_raw, areas_map[slot])
+        if df_proc.empty:
             continue
 
-        uts, bs, bp, E = TensileTest.metrics(df)
+        uts, bs, bp, E = TensileTest.metrics(df_proc)
         rows.append(
             {
                 "Slot": slot,
@@ -59,34 +68,40 @@ def build_summary(
                 "Break_Stress_MPa": bs,
                 "Break_Strain_%": bp,
                 "Elastic_Modulus_GPa": E,
-                "Post_Gradient_MPa_perc": post_gradient(df),
-                "Yield_Gradient_MPa_perc": TensileTest.yield_gradient(df),
+                "Post_Gradient_MPa_perc": post_gradient(df_proc),
+                "Yield_Gradient_MPa_perc": TensileTest.yield_gradient(df_proc),
             }
         )
 
     return pd.DataFrame(rows).set_index("Slot")
 
 
-# ─────────────────────────────────── stats (long) ─────────────────────
+# ─────────────────────────────── stats (long) ─────────────────────────
+
+
 def build_stats(
     summary_df: pd.DataFrame,
     conditions: List[Condition],
-    metrics: Dict[str, str],
+    metrics: "OrderedDict[str, str]",
 ) -> pd.DataFrame:
     """
-    Welch-t vs control, effect size, % change – long (“tidy”) layout.
+    Welch-t vs control, Cohen-d, % change – returned in a **long / tidy**
+    layout.  ``metrics`` **must be an OrderedDict** whose key is the
+    column name in *summary_df* and whose value is the pretty label.  The
+    order of that OrderedDict drives the column order in the wide export.
     """
     control = _control_name(conditions)
-    rows = []
+    rows: list[list] = []
 
-    for key, nice in metrics.items():
-        ctrl_vals = summary_df[summary_df["Condition"] == control][key].dropna()
+    for col, nice in metrics.items():
+        ctrl_vals = summary_df.loc[summary_df["Condition"] == control, col].dropna()
         ctrl_mean = ctrl_vals.mean()
 
         for cond in summary_df["Condition"].unique():
-            test_vals = summary_df[summary_df["Condition"] == cond][key].dropna()
+            test_vals = summary_df.loc[summary_df["Condition"] == cond, col].dropna()
 
-            if cond == control:  # keep explicit control row
+            # always emit a row for the control itself
+            if cond == control:
                 rows.append(
                     [nice, cond, ctrl_mean, ctrl_mean, np.nan, np.nan, np.nan, "-"]
                 )
@@ -97,16 +112,21 @@ def build_stats(
 
             t, p = ttest_ind(ctrl_vals, test_vals, equal_var=False)
             pooled = np.sqrt(
-                ((len(ctrl_vals) - 1) * ctrl_vals.std(ddof=1) ** 2
-                 + (len(test_vals) - 1) * test_vals.std(ddof=1) ** 2)
+                (
+                    (len(ctrl_vals) - 1) * ctrl_vals.std(ddof=1) ** 2
+                    + (len(test_vals) - 1) * test_vals.std(ddof=1) ** 2
+                )
                 / (len(ctrl_vals) + len(test_vals) - 2)
             )
             d = abs((ctrl_mean - test_vals.mean()) / pooled) if pooled else np.nan
             eff = (
-                "Large" if d >= 0.8 else
-                "Medium" if d >= 0.5 else
-                "Small" if d >= 0.2 else
-                "Negligible"
+                "Large"
+                if d >= 0.8
+                else "Medium"
+                if d >= 0.5
+                else "Small"
+                if d >= 0.2
+                else "Negligible"
             )
             rows.append([nice, cond, ctrl_mean, test_vals.mean(), t, p, d, eff])
 
@@ -125,22 +145,26 @@ def build_stats(
     )
 
 
-# ──────────────────────────────── pivot to wide ───────────────────────
+# ──────────────────────────────── to wide ─────────────────────────────
+
+
 def long_to_wide(
     stats_long: pd.DataFrame,
     summary_df: pd.DataFrame,
-    control: str,
+    control_name: str,
+    metrics: "OrderedDict[str, str] | None" = None,
 ) -> pd.DataFrame:
     """
-    Convert *stats_long* to the 2-level wide table used for Excel export.
+    Pivot *stats_long* to the 2-level wide layout expected by Excel.
 
-    Adds an “N” column with per-condition fibre counts.
+    *metrics* (if given) provides the desired **order** of metric
+    blocks; otherwise the first-appearance order in *stats_long* is used.
     """
     wanted_stats = ["Test_Mean", "% Change", "p", "d", "Effect"]
 
-    # % change ----- (compute here so we can reuse in tests & Excel)
+    # ---- % change vs control -----------------------------------------
     ctrl_means = (
-        stats_long[stats_long["Condition"] == control]
+        stats_long[stats_long["Condition"] == control_name]
         .set_index("Metric")["Control_Mean"]
     )
     stats_long["% Change"] = (
@@ -149,19 +173,32 @@ def long_to_wide(
     ).fillna(0)
 
     wide = (
-        stats_long
-        .set_index(["Condition", "Metric"])[wanted_stats]
+        stats_long.set_index(["Condition", "Metric"])[wanted_stats]
         .unstack("Metric")
         .swaplevel(axis=1)
-        .sort_index(axis=1, level=0)
     )
 
-    # insert N sizes
+    # ---- metric block ordering ---------------------------------------
+    if metrics is not None:
+        metric_order = [metrics[col] for col in metrics]  # nice labels in order
+        sub_order = wanted_stats
+        # produce a new column order list
+        ordered_cols: list[tuple] = []
+        for met in metric_order:
+            for sub in sub_order:
+                tup = (met, sub)
+                if tup in wide.columns:
+                    ordered_cols.append(tup)
+        wide = wide[ordered_cols]
+
+    # ---- insert N -----------------------------------------------------
     n_sizes = summary_df.reset_index().groupby("Condition").size()
     wide.insert(0, ("", "N"), n_sizes.reindex(wide.index).astype("Int64"))
 
-    # control first for readability
-    if control in wide.index:
-        wide = wide.reindex([control] + [idx for idx in wide.index if idx != control])
+    # ---- control row first -------------------------------------------
+    if control_name in wide.index:
+        wide = wide.reindex(
+            [control_name] + [idx for idx in wide.index if idx != control_name]
+        )
 
     return wide
