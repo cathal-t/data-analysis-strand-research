@@ -1,11 +1,14 @@
-﻿__pycache__/
+# ── Python byte-code ────────────────────────────────
+__pycache__/
 *.py[cod]
+
+# ── Poetry / virtual-env artefacts ──────────────────
 *.egg-info/
 .venv/
 
-# analysis outputs
+# ── analysis outputs (sample fixture results) ───────
 tests/fixtures/**/results/
 
-# OS cruft
+# ── OS cruft ────────────────────────────────────────
 .DS_Store
 Thumbs.db
