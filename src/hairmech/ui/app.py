@@ -4,10 +4,15 @@ hairmech.ui.app
 
 Dash front-end for interactive hair-mechanical analysis.
 
-Update
-------
-* *Control?* column is now a **click-to-toggle tick box** (✓ = control).
-* Only one row can hold the tick; clicking another row moves it.
+What’s new (July 2025)
+----------------------
+* **Control?** column is a click-to-toggle ✓ tick (only one row allowed).
+* Two filename inputs + buttons let the user download:
+  • metrics.xlsx  – per-slot summary (build_summary)  
+  • stats.xlsx    – Welch-t & effect sizes (build_stats → long_to_wide)
+  The files are generated in memory and streamed via dcc.Download.
+* A simple `run_hairmech.bat` can call:  `python -m hairmech.ui.app`
+  to launch the server and open the browser.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import base64
 import json
 import tempfile
 from dataclasses import asdict
+from io import BytesIO
 from pathlib import Path
 from typing import List, Tuple
 
@@ -26,17 +32,18 @@ from dash import Dash, dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 
-from ..analysis import build_summary
+from ..analysis import build_summary, build_stats, long_to_wide
 from ..dimensional import DimensionalData
 from ..io.config import Condition, ConfigError, load_config
 from ..plots import make_overlay, make_violin_grid
 from ..tensile import TensileTest
 
-TICK = "✓"        # unicode tick mark
-EMPTY = ""        # blank for non-control rows
-
+TICK = "✓"
+EMPTY = ""
 
 # ───────────────────────── helper I/O ──────────────────────────
+
+
 def _load_experiment(
     root: Path,
 ) -> Tuple[dict[int, float], TensileTest, List[Condition]]:
@@ -105,6 +112,16 @@ def _max_slot(areas: dict[int, float], tensile: TensileTest) -> int:
     )
 
 
+def _to_excel_bytes(df_dict: dict[str, pd.DataFrame]) -> bytes:
+    """Helper: write several DataFrames to one Excel file → bytes."""
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as xls:
+        for sheet, df in df_dict.items():
+            df.to_excel(xls, sheet_name=sheet, index=False)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 # ───────────────────── Dashboard factory ──────────────────────
 def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     root = Path(root_dir) if root_dir else _demo_exp_path()
@@ -135,6 +152,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 ],
                 className="mb-3",
             ),
+
             # table control buttons
             dbc.Row(
                 [
@@ -143,7 +161,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 ],
                 className="mb-2",
             ),
-            # editable table
+
+            # editable DataTable
             dash_table.DataTable(
                 id="cond-table",
                 columns=[
@@ -163,14 +182,30 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 row_selectable="multi",
                 row_deletable=True,
                 style_table={"overflowX": "auto"},
-                style_data_conditional=[
-                    {
-                        "if": {"column_id": "is_control"},
-                        "textAlign": "center",
-                    }
-                ],
+                style_data_conditional=[{
+                    "if": {"column_id": "is_control"},
+                    "textAlign": "center",
+                }],
             ),
+
             dbc.Button("Apply & plot", id="btn-apply", color="primary", className="my-3"),
+
+            # download controls ------------------------------------------------
+            dbc.Row(
+                [
+                    dbc.Col(dbc.Input(id="metrics-name", value="metrics.xlsx",
+                                      placeholder="metrics.xlsx", type="text", size="md"), width="auto"),
+                    dbc.Col(dbc.Button("Download Metrics", id="btn-dl-metrics", color="info"), width="auto"),
+                    dbc.Col(width=2),  # spacer
+                    dbc.Col(dbc.Input(id="stats-name", value="stats.xlsx",
+                                      placeholder="stats.xlsx", type="text", size="md"), width="auto"),
+                    dbc.Col(dbc.Button("Download Stats", id="btn-dl-stats", color="info"), width="auto"),
+                ],
+                className="align-items-center mb-3",
+            ),
+            dcc.Download(id="dl-metrics"),
+            dcc.Download(id="dl-stats"),
+
             # figure selector
             dcc.Dropdown(
                 id="tabs",
@@ -181,14 +216,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 style={"width": "250px"},
             ),
             html.Div(id="fig-container", className="mt-4"),
-            # caches
+
             dcc.Store(id="exp-data"),
         ],
         fluid=True,
     )
 
     # ─────────────── callbacks ───────────────
-    # auto-populate table after uploads
+    # auto-fill table
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("upload-dim", "contents"),
@@ -207,7 +242,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             "is_control": TICK,
         }]
 
-    # add blank row
+    # add / delete rows
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("btn-add", "n_clicks"),
@@ -218,7 +253,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         rows.append({"name": "", "slot_start": "", "slot_end": "", "is_control": EMPTY})
         return rows
 
-    # delete selected rows
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("btn-del", "n_clicks"),
@@ -231,7 +265,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             raise PreventUpdate
         return [row for i, row in enumerate(rows) if i not in sel]
 
-    # toggle tick on single click
+    # toggle tick
     @app.callback(
         Output("cond-table", "data"),
         Input("cond-table", "active_cell"),
@@ -241,7 +275,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _toggle_tick(cell, rows):
         if not cell or cell.get("column_id") != "is_control":
             raise PreventUpdate
-        # remove tick everywhere, add to clicked row
         for r in rows:
             r["is_control"] = EMPTY
         rows[cell["row"]]["is_control"] = TICK
@@ -286,7 +319,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             "conds": [asdict(c) for c in conds],
         })
 
-    # draw figure
+    # build figure
     @app.callback(
         Output("fig-container", "children"),
         Input("tabs", "value"),
@@ -304,9 +337,59 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         fig = _overlay_fig(areas, tensile, conds) if tab == "overlay" else _violin_fig(areas, tensile, conds)
         return dcc.Graph(figure=fig, style={"height": "750px"})
 
-    return app
+    # download metrics
+    @app.callback(
+        Output("dl-metrics", "data"),
+        Input("btn-dl-metrics", "n_clicks"),
+        State("metrics-name", "value"),
+        State("exp-data", "data"),
+        prevent_initial_call=True,
+    )
+    def _download_metrics(_, fname, payload):
+        if not payload:
+            raise PreventUpdate
+        data = json.loads(payload)
+        areas = _bytes_to_dim(_b64_to_bytes(data["dim_b64"]))
+        tensile = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
+        conds = [Condition(**c) for c in data["conds"]]
+        df = build_summary(areas, tensile, conds)
+        bytes_out = _to_excel_bytes({"Metrics": df})
+        return dcc.send_bytes(bytes_out, fname or "metrics.xlsx")
+
+    # download stats
+    @app.callback(
+        Output("dl-stats", "data"),
+        Input("btn-dl-stats", "n_clicks"),
+        State("stats-name", "value"),
+        State("exp-data", "data"),
+        prevent_initial_call=True,
+    )
+    def _download_stats(_, fname, payload):
+        if not payload:
+            raise PreventUpdate
+
+        data = json.loads(payload)
+        areas   = _bytes_to_dim(_b64_to_bytes(data["dim_b64"]))
+        tensile = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
+        conds   = [Condition(**c) for c in data["conds"]]
+
+        # ➊ build per-slot summary
+        summary = build_summary(areas, tensile, conds)
+
+        # ➋ metric columns = everything except Slot / Condition
+        from collections import OrderedDict
+        metric_cols = [c for c in summary.columns if c not in ("Slot", "Condition")]
+        metrics_od  = OrderedDict((c, c.replace("_", " ")) for c in metric_cols)
+
+        # ➌ Welch-t / Cohen-d table
+        long  = build_stats(summary, conds, metrics_od)
+        wide  = long_to_wide(long)
+
+        bytes_out = _to_excel_bytes({"Stats": wide})
+        return dcc.send_bytes(bytes_out, fname or "stats.xlsx")
+        return app
 
 
-# module-level instance
+# module-level instance (importable by tests or BAT launcher)
 app: Dash = build_dash_app()
 __all__ = ["build_dash_app", "app"]
