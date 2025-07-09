@@ -8,24 +8,23 @@ from typing import List
 import click
 import pandas as pd
 
-from .io.config import load_config, ConfigError
+from .analysis import build_stats, build_summary, long_to_wide
 from .dimensional import DimensionalData
-from .tensile import TensileTest
-from .analysis import build_summary, build_stats, long_to_wide
+from .io.config import ConfigError, load_config
 from .io.export import save_metrics, save_stats_wide
 from .plots import make_overlay, make_violin_grid
-from collections import OrderedDict
-
+from .tensile import TensileTest
+from .ui import build_dash_app
 
 # ───────────────────────── click root ─────────────────────────
 @click.group()
 def cli() -> None:  # pragma: no cover
     """Hair-mech command-line entry point."""
-    pass
+    pass  # noqa: WPS420
 
 
 # ─────────────────────────── run ──────────────────────────────
-@cli.command()
+@cli.command(help="Run full analysis on an experiment folder.")
 @click.option(
     "-i",
     "--input",
@@ -42,22 +41,33 @@ def cli() -> None:  # pragma: no cover
     help="Output directory (default: <input>/results)",
 )
 def run(input_dir: Path, out_dir: Path | None) -> None:
-    """
-    Run the full pipeline and write Excel + Plotly HTML to *out_dir*.
-    """
+    """CLI pipeline – mirrors notebook steps."""
     try:
-        # 1 ── user config ----------------------------------------------------
-        conds = load_config(input_dir)           # list[Condition]
+        conds = load_config(input_dir)
         control_name = next(c.name for c in conds if c.is_control)
         slot_to_cond = {s: c.name for c in conds for s in c.slots}
 
-        # 2 ── raw input ------------------------------------------------------
         areas = DimensionalData(input_dir / "Dimensional_Data.txt").map
         tensile = TensileTest(input_dir / "Tensile_Data.txt")
 
-        # 3 ── per-slot metrics & tidy curves --------------------------------
-        # NOTE: build_summary now takes the Condition list, not a dict
         summary = build_summary(areas, tensile, conds)
+
+        metrics_map = {
+            "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
+            "Yield_Gradient_MPa_perc": "Yield-grad. (MPA / %ε)",
+            "Post_Gradient_MPA_perc": "Post-grad. (MPA / %ε)",
+            "Break_Stress_MPa": "Break stress (MPa)",
+            "Break_Strain_%": "Break strain (%)",
+        }
+        stats_long = build_stats(summary, conds, metrics_map)
+        stats_wide = long_to_wide(stats_long, summary, control_name)
+
+        out_dir = out_dir or input_dir / "results"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        save_metrics(summary, out_dir / "metrics.xlsx")
+        save_stats_wide(stats_wide, control_name, out_dir / "stats.xlsx")
+        click.echo(f"✓ Excel written → {out_dir}")
 
         curves_rows: List[dict] = []
         for slot, df_raw in tensile.per_slot():
@@ -75,28 +85,6 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
             )
         curves_df = pd.DataFrame(curves_rows)
 
-        # 4 ── wide stats table ----------------------------------------------
-        METRICS: "OrderedDict[str, str]" = OrderedDict([
-            ("Elastic_Modulus_GPa",      "Elastic modulus (GPa)"),
-            ("Yield_Gradient_MPa_perc",  "Yield-grad. (MPa / %ε)"),
-            ("Post_Gradient_MPa_perc",   "Post-grad. (MPa / %ε)"),
-            ("Break_Stress_MPa",         "Break stress (MPa)"),
-            ("Break_Strain_%",           "Break strain (%)"),
-            # ("UTS_MPa",               "UTS"),   # ← left commented-out to drop
-        ])
-        stats_long = build_stats(summary, conds, METRICS)
-        stats_wide = long_to_wide(stats_long, summary, control_name, METRICS)
-
-        # 5 ── output dir -----------------------------------------------------
-        out_dir = out_dir or input_dir / "results"
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        # 6 ── Excel ----------------------------------------------------------
-        save_metrics(summary, out_dir / "metrics.xlsx")
-        save_stats_wide(stats_wide, control_name, out_dir / "stats.xlsx")
-        click.echo(f"✓ Excel written → {out_dir}")
-
-        # 7 ── Plotly HTML ----------------------------------------------------
         make_overlay(curves_df, conds).write_html(
             out_dir / "overlay.html", include_plotlyjs="cdn"
         )
@@ -105,7 +93,6 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
         )
         click.echo(f"✓ Plots written → {out_dir}")
 
-    # ---------- friendly error messages ------------------------------------
     except FileNotFoundError:
         click.echo(f"config.yml not found in {input_dir}", err=True)
         sys.exit(1)
@@ -118,15 +105,20 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
         sys.exit(1)
 
 
-# ---------------------------------------------------------------------
+# ────────────────────────── serve (Dash) ──────────────────────
+@cli.command(help="Launch Dash UI on http://127.0.0.1:8050")
+def serve() -> None:  # pragma: no cover
+    app = build_dash_app()
+    app.run_server("127.0.0.1", 8050, debug=True)
+
+
+# -----------------------------------------------------------------
 def _main() -> None:  # pragma: no cover
     """Entry-point for `python -m hairmech`."""
     cli()
 
 
-# legacy alias so tools/tests looking for cli.main still work
-main = _main  # type: ignore
-
+main = _main  # legacy alias
 
 if __name__ == "__main__":  # pragma: no cover
     _main()
