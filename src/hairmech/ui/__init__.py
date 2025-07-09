@@ -1,3 +1,11 @@
-from .app import build_dash_app
+"""
+Dash UI package bootstrap.
+"""
+# Ensure chromedriver is discoverable for dash[testing] / selenium
+try:                     # no extra cost in production
+    import chromedriver_binary   # noqa: F401
+except ModuleNotFoundError:
+    # dev extra not installed – nothing to do
+    pass
 
-__all__ = ["build_dash_app"]
+from .app import build_dash_app  
