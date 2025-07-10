@@ -38,13 +38,14 @@ from ..io.config import Condition, ConfigError, load_config
 from ..plots import make_overlay, make_violin_grid
 from ..tensile import TensileTest
 
-# ────────────── constants ──────────────
+# ────────── constants ──────────
 TICK = "✓"
 EMPTY = ""
 DEFAULT_RE = re.compile(r"Condition\s+\d+", re.I)
 
-# ────────────── helper I/O ──────────────
+# ────────── helper I/O ──────────
 def _load_experiment(root: Path) -> Tuple[dict[int, float], TensileTest, List[Condition]]:
+    """Read config + data from an experiment directory."""
     conds = load_config(root)
     areas = DimensionalData(root / "Dimensional_Data.txt").map
     tensile = TensileTest(root / "Tensile_Data.txt")
@@ -76,20 +77,27 @@ def _violin_fig(areas, tensile, conds):
 
 
 def _demo_exp_path() -> Path:
-    """Locate bundled demo data so the app can load without uploads."""
+    """
+    Locate the bundled demo experiment so the GUI shows something when
+    run without uploads.  We ship it under tests/fixtures/demo_exp.
+    """
     here = Path(__file__).resolve()
     for p in here.parents:
         demo = p / "tests" / "fixtures" / "demo_exp"
         if demo.exists():
             return demo
-    raise FileNotFoundError("demo_exp fixture not found")
+    raise FileNotFoundError(
+        "Bundled demo data not found – pass --root <experiment_dir> instead."
+    )
 
 
 def _b64_to_bytes(content: str) -> bytes:
+    """Dash <Upload> component sends data-URIs → strip header, decode."""
     return base64.b64decode(content.partition(",")[2])
 
 
 def _bytes_to_dim(raw: bytes) -> dict[int, float]:
+    """Dimensional .txt parser expects a path – cheat with temp-file."""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
         tmp.write(raw)
         tmp.flush()
@@ -97,6 +105,7 @@ def _bytes_to_dim(raw: bytes) -> dict[int, float]:
 
 
 def _bytes_to_ten(raw: bytes) -> TensileTest:
+    """Same trick for tensile data."""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
         tmp.write(raw)
         tmp.flush()
@@ -104,6 +113,7 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
 
 
 def _max_slot(areas: dict[int, float], tensile: TensileTest) -> int:
+    """Largest slot number across both datasets."""
     return max(
         max(areas, default=0),
         max((slot for slot, _ in tensile.per_slot()), default=0),
@@ -111,24 +121,22 @@ def _max_slot(areas: dict[int, float], tensile: TensileTest) -> int:
 
 
 def _to_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
-    """
-    Write multiple DataFrames to an in-memory Excel file.
-    Keeps multi-level columns if present.
-    """
+    """Write DataFrames to a single in-memory Excel workbook."""
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as xls:
         for sheet, df in sheets.items():
-            df.to_excel(xls, sheet_name=sheet, index=isinstance(df.columns, pd.MultiIndex))
+            df.to_excel(
+                xls,
+                sheet_name=sheet,
+                index=isinstance(df.columns, pd.MultiIndex),  # preserve MI
+            )
     buf.seek(0)
     return buf.getvalue()
 
 
-# ────────────── slot rebalance ──────────────
+# ────────── slot rebalance helper ──────────
 def _rebalance_rows(rows: List[dict]):
-    """
-    Evenly re-split the total slot range across all rows in-place and
-    set default names where appropriate.
-    """
+    """Evenly re-split total slot range across rows & set default names."""
     total = max(int(r.get("slot_end") or 0) for r in rows)
     if total == 0:
         return
@@ -142,8 +150,9 @@ def _rebalance_rows(rows: List[dict]):
         start += span
 
 
-# ───────────────────── Dash app ─────────────────────
+# ───────────────────── Dash factory ─────────────────────
 def build_dash_app(root_dir: str | Path | None = None) -> Dash:
+    """Return a configured Dash application instance."""
     root = Path(root_dir) if root_dir else _demo_exp_path()
     default_areas, default_tensile, default_conds = _load_experiment(root)
 
@@ -155,10 +164,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     )
 
     # ═══════════ LAYOUT ═══════════
-    header = dbc.Row(dbc.Col(html.H3("Strand Research - Data Analysis"), width="auto"),
-                     className="mt-2 mb-3")
+    header = dbc.Row(
+        dbc.Col(html.H3("Strand Research – Data Analysis"), width="auto"),
+        className="mt-2 mb-3",
+    )
 
-    # Upload card
+    # Upload card ------------------------------------------------------
     upload_card = dbc.Card(
         dbc.CardBody(
             dbc.Row(
@@ -168,7 +179,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             dcc.Upload(
                                 id="upload-dim",
                                 children=dbc.Button("Upload Dimensional Data",
-                                                    color="primary", id="btn-dim"),
+                                                    id="btn-dim", color="primary"),
                                 multiple=False,
                             ),
                             html.Small(id="dim-msg", className="text-muted"),
@@ -180,7 +191,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             dcc.Upload(
                                 id="upload-ten",
                                 children=dbc.Button("Upload Tensile Data",
-                                                    color="primary", id="btn-ten"),
+                                                    id="btn-ten", color="primary"),
                                 multiple=False,
                             ),
                             html.Small(id="ten-msg", className="text-muted"),
@@ -189,16 +200,18 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     ),
                 ],
                 className="g-3 flex-wrap",
-            )
+            ),
         ),
         className="mb-3 shadow-sm",
     )
 
-    # Condition editor
+    # Condition editor -------------------------------------------------
     cond_ctrls = dbc.Row(
         [
-            dbc.Col(dbc.Button("Add condition", id="btn-add", color="secondary"), width="auto"),
-            dbc.Col(dbc.Button("Delete selected", id="btn-del", color="danger"), width="auto", className="ms-auto"),
+            dbc.Col(dbc.Button("Add condition", id="btn-add", color="secondary"),
+                    width="auto"),
+            dbc.Col(dbc.Button("Delete selected", id="btn-del", color="danger"),
+                    width="auto", className="ms-auto"),
         ],
         className="g-2 flex-wrap",
     )
@@ -206,10 +219,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     cond_table = dash_table.DataTable(
         id="cond-table",
         columns=[
-            dict(name="Condition name", id="name", editable=True, type="text"),
-            dict(name="Slot start", id="slot_start", editable=True, type="numeric"),
-            dict(name="Slot end", id="slot_end", editable=True, type="numeric"),
-            dict(name="Control?", id="is_control", editable=False,
+            dict(name="Condition name", id="name",        editable=True, type="text"),
+            dict(name="Slot start",     id="slot_start",  editable=True, type="numeric"),
+            dict(name="Slot end",       id="slot_end",    editable=True, type="numeric"),
+            dict(name="Control?",       id="is_control",  editable=False,
                  type="text", presentation="markdown"),
         ],
         data=[{"name": "Condition 1", "slot_start": 1, "slot_end": 1, "is_control": TICK}],
@@ -226,8 +239,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         className="mb-3 shadow-sm",
     )
 
-    # Actions card
+    # Actions card -----------------------------------------------------
     apply_btn = dbc.Button("Apply & plot", id="btn-apply", color="primary")
+
     view_dd = dcc.Dropdown(
         id="tabs",
         options=[{"label": "Overlay", "value": "overlay"},
@@ -239,24 +253,30 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
     download_row = dbc.Row(
         [
-            dbc.Col(dbc.Input(id="metrics-name", value="metrics.xlsx", type="text"), width="auto"),
-            dbc.Col(dbc.Button("Download Metrics", id="btn-dl-metrics", color="info"), width="auto"),
+            dbc.Col(dbc.Input(id="metrics-name", value="metrics.xlsx", type="text"),
+                    width="auto"),
+            dbc.Col(dbc.Button("Download Metrics", id="btn-dl-metrics", color="info"),
+                    width="auto"),
             dbc.Col(width=2),
-            dbc.Col(dbc.Input(id="stats-name", value="stats.xlsx", type="text"), width="auto"),
-            dbc.Col(dbc.Button("Download Stats", id="btn-dl-stats", color="info"), width="auto"),
+            dbc.Col(dbc.Input(id="stats-name", value="stats.xlsx", type="text"),
+                    width="auto"),
+            dbc.Col(dbc.Button("Download Stats", id="btn-dl-stats", color="info"),
+                    width="auto"),
         ],
         className="g-2 flex-wrap",
     )
 
     actions_card = dbc.Card(
-        dbc.CardBody([apply_btn, html.Span(className="mx-2"), view_dd, html.Hr(), download_row]),
+        dbc.CardBody([apply_btn, html.Span(className="mx-2"), view_dd,
+                      html.Hr(), download_row]),
         className="mb-3 shadow-sm",
     )
 
-    # Figure card
-    fig_card = dbc.Card(dbc.CardBody(html.Div(id="fig-container")), className="shadow-sm")
+    # Figure card ------------------------------------------------------
+    fig_card = dbc.Card(dbc.CardBody(html.Div(id="fig-container")),
+                        className="shadow-sm")
 
-    # Main container
+    # Assemble layout --------------------------------------------------
     app.layout = dbc.Container(
         [
             header,
@@ -264,7 +284,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             cond_card,
             actions_card,
             fig_card,
-            # hidden stores / downloads
+            # hidden helpers
             dcc.Download(id="dl-metrics"),
             dcc.Download(id="dl-stats"),
             dcc.Store(id="exp-data"),
@@ -274,14 +294,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     )
 
     # ═══════════ CALLBACKS ═══════════
-    # Upload status colour + caption
+    # --- Upload button colour + caption ------------------------------
     @app.callback(
         Output("btn-dim", "color"), Output("dim-msg", "children"),
         Input("upload-dim", "contents"), State("upload-dim", "filename"),
         prevent_initial_call=True,
     )
     def _dim_status(contents, filename):
-        return ("success", f"Loaded: {filename}") if contents else ("primary", "")
+        return ("success", f"Loaded {filename}") if contents else ("primary", "")
 
     @app.callback(
         Output("btn-ten", "color"), Output("ten-msg", "children"),
@@ -289,9 +309,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         prevent_initial_call=True,
     )
     def _ten_status(contents, filename):
-        return ("success", f"Loaded: {filename}") if contents else ("primary", "")
+        return ("success", f"Loaded {filename}") if contents else ("primary", "")
 
-    # Prime table once both files uploaded
+    # --- Prime table once both files uploaded ------------------------
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("upload-dim", "contents"),
@@ -306,7 +326,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         total = _max_slot(areas, tensile)
         return [{"name": "Condition 1", "slot_start": 1, "slot_end": total, "is_control": TICK}]
 
-    # Add / delete rows with automatic rebalance
+    # --- Add / delete rows (rebalance) -------------------------------
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("btn-add", "n_clicks"),
@@ -332,7 +352,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         _rebalance_rows(rows)
         return rows
 
-    # Toggle ✓
+    # --- Toggle ✓ control --------------------------------------------
     @app.callback(
         Output("cond-table", "data"),
         Input("cond-table", "active_cell"),
@@ -347,7 +367,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         rows[cell["row"]]["is_control"] = TICK
         return rows
 
-    # Validate & cache experiment
+    # --- Validate & cache experiment ---------------------------------
     @app.callback(
         Output("exp-data", "data"),
         Input("btn-apply", "n_clicks"),
@@ -382,7 +402,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             {"dim_b64": dim_b64, "ten_b64": ten_b64, "conds": [asdict(c) for c in conds]}
         )
 
-    # Plot
+    # --- Draw figure -------------------------------------------------
     @app.callback(
         Output("fig-container", "children"),
         Input("tabs", "value"),
@@ -391,16 +411,16 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _draw(tab, payload):
         if payload:
             d = json.loads(payload)
-            areas = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
+            areas   = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
             tensile = _bytes_to_ten(_b64_to_bytes(d["ten_b64"]))
-            conds = [Condition(**c) for c in d["conds"]]
+            conds   = [Condition(**c) for c in d["conds"]]
         else:
             areas, tensile, conds = default_areas, default_tensile, default_conds
 
         fig = _overlay_fig(areas, tensile, conds) if tab == "overlay" else _violin_fig(areas, tensile, conds)
         return dcc.Graph(figure=fig, style={"height": "750px"})
 
-    # Download metrics
+    # --- Download metrics -------------------------------------------
     @app.callback(
         Output("dl-metrics", "data"),
         Input("btn-dl-metrics", "n_clicks"),
@@ -412,13 +432,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if not payload:
             raise PreventUpdate
         d = json.loads(payload)
-        areas = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
+        areas   = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
         tensile = _bytes_to_ten(_b64_to_bytes(d["ten_b64"]))
-        conds = [Condition(**c) for c in d["conds"]]
+        conds   = [Condition(**c) for c in d["conds"]]
         df = build_summary(areas, tensile, conds)
-        return dcc.send_bytes(_to_excel_bytes({"Metrics": df}), fname or "metrics.xlsx")
+        return dcc.send_bytes(_to_excel_bytes({"Metrics": df}),
+                              fname or "metrics.xlsx")
 
-    # Download stats
+    # --- Download stats ---------------------------------------------
     @app.callback(
         Output("dl-stats", "data"),
         Input("btn-dl-stats", "n_clicks"),
@@ -430,23 +451,25 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if not payload:
             raise PreventUpdate
         d = json.loads(payload)
-        areas = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
+        areas   = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
         tensile = _bytes_to_ten(_b64_to_bytes(d["ten_b64"]))
-        conds = [Condition(**c) for c in d["conds"]]
+        conds   = [Condition(**c) for c in d["conds"]]
 
         summary = build_summary(areas, tensile, conds)
         metrics_od = OrderedDict(
-            (c, c.replace("_", " ")) for c in summary.columns if c not in ("Slot", "Condition")
+            (c, c.replace("_", " ")) for c in summary.columns
+            if c not in ("Slot", "Condition")
         )
         long = build_stats(summary, conds, metrics_od)
         control_name = next(c.name for c in conds if c.is_control)
         wide = long_to_wide(long, summary, control_name, metrics_od)
 
-        return dcc.send_bytes(_to_excel_bytes({"Stats": wide}), fname or "stats.xlsx")
+        return dcc.send_bytes(_to_excel_bytes({"Stats": wide}),
+                              fname or "stats.xlsx")
 
     return app
 
 
-# module-level instance (picked up by unit tests)
+# Module-level instance (importable by tests or `python -m hairmech.ui.app`)
 app: Dash = build_dash_app()
 __all__ = ["build_dash_app", "app"]
