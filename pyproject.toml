@@ -1,49 +1,58 @@
-# ─────────────────────────  pyproject.toml  ──────────────────────────
+# ───────────────────────────── pyproject.toml ─────────────────────────────
 [tool.poetry]
 name        = "hairmech"
-version     = "0.3.0"        # ← first GUI release
+version     = "0.3.1"
 description = "Hair-mechanics analysis & Dash visualisation toolkit"
 authors     = ["Cathal Tuohy <cathal.tuohydubb@gmail.com>"]
 license     = "MIT"
 readme      = "README.md"
 
-# source layout
+# source layout (src/hairmech/…)
 packages = [
   { include = "hairmech", from = "src" }
 ]
 
-# ------------------------ core runtime deps --------------------------
+# extra data → copied verbatim into the wheel
+include = [
+  "tests/fixtures/demo_exp/**"
+]
+
+# ───────────── core runtime deps ─────────────
 [tool.poetry.dependencies]
-python           = ">=3.9,<3.13"
-pandas           = "^2.2"
-numpy            = "^2.3"
-xlsxwriter       = "^3.2"
-scipy            = "^1.13"
-matplotlib       = "^3.9"
-pyyaml           = "^6.0.2"
-click            = "^8.1"
-urllib3          = "<2"          # selenium pin
-selenium         = "<4.34"
+python      = ">=3.9,<3.13"
+pandas      = "^2.2"
+numpy       = "^2.3"
+xlsxwriter  = "^3.2"
+scipy       = "^1.13"
+matplotlib  = "^3.9"
+pyyaml      = "^6.0.2"
+click       = "^8.1"
+urllib3     = "<2"          # selenium pin
+selenium    = "<4.34"
 
-# ---- GUI deps (marked optional so CLI-only users can skip) ----------
-dash                         = { version = "^2.18", optional = true }
-dash-bootstrap-components    = { version = "^1.7", optional = true }
-plotly                       = { version = "^5.24", optional = true }
+# ---- optional GUI deps ----
+dash                      = { version = "^2.18", optional = true }
+dash-bootstrap-components = { version = "^1.7",  optional = true }
+plotly                    = { version = "^5.24", optional = true }
 
-# ----------------------- optional feature sets -----------------------
 [tool.poetry.extras]
 ui = ["dash", "dash-bootstrap-components", "plotly"]
 
-# ------------------------- development group -------------------------
+# ───────────── development tools ─────────────
 [tool.poetry.group.dev.dependencies]
-pytest            = "^8.2"
-ruff              = "^0.4"
-black             = "^24.4"
-webdriver-manager = "^4.0"
-dash              = { version = "^2.18", extras = ["testing"] }
-chromedriver-binary = "*"     # matches local Chrome for Dash tests
+pytest              = "^8.2"
+ruff                = "^0.4"
+black               = "^24.4"
+webdriver-manager   = "^4.0"
+dash                = { version = "^2.18", extras = ["testing"] }
+chromedriver-binary = "*"
 
-# ----------------------- console entry points ------------------------
+# ───────────── console entry points ─────────────
 [tool.poetry.scripts]
 hairmech-cli = "hairmech.cli:cli"
 hairmech-gui = "hairmech.ui:run"
+
+# ───────────── build backend ─────────────
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
