@@ -1,7 +1,7 @@
 # ─────────────────────────  pyproject.toml  ──────────────────────────
 [tool.poetry]
 name        = "hairmech"
-version     = "0.1.0"
+version     = "0.3.0"
 description = "Hair-mechanics analysis & visualisation toolkit"
 authors     = ["Cathal Tuohy <cathal.tuohydubb@gmail.com>"]
 
@@ -16,7 +16,7 @@ pandas     = "^2.2"
 numpy      = "^2.3"
 plotly     = "^5.24"
 dash       = "^2.18"           # core Dash runtime (no testing extras)
-dash-bootstrap-components = { version = "^1.6", optional = true }
+dash-bootstrap-components = "^1.6"
 xlsxwriter = "^3.2"
 click      = "^8.1"
 matplotlib = "^3.9"
