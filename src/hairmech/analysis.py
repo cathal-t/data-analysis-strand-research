@@ -86,62 +86,78 @@ def build_stats(
 ) -> pd.DataFrame:
     """
     Welch-t vs control, Cohen-d, % change – returned in a **long / tidy**
-    layout.  ``metrics`` **must be an OrderedDict** whose key is the
-    column name in *summary_df* and whose value is the pretty label.  The
-    order of that OrderedDict drives the column order in the wide export.
+    layout with Excel-friendly formatting and structure.
     """
     control = _control_name(conditions)
-    rows: list[list] = []
+    rows_tbl = []
 
     for col, nice in metrics.items():
         ctrl_vals = summary_df.loc[summary_df["Condition"] == control, col].dropna()
         ctrl_mean = ctrl_vals.mean()
 
         for cond in summary_df["Condition"].unique():
+            if cond == control:
+                continue
+
             test_vals = summary_df.loc[summary_df["Condition"] == cond, col].dropna()
 
-            if cond == control:
-                rows.append(
-                    [nice, cond, ctrl_mean, ctrl_mean, np.nan, np.nan, np.nan, "-"]
+            if len(ctrl_vals) and len(test_vals):
+                t, p = ttest_ind(ctrl_vals, test_vals, equal_var=False)
+                pooled = np.sqrt(
+                    (
+                        (len(ctrl_vals) - 1) * ctrl_vals.std(ddof=1) ** 2
+                        + (len(test_vals) - 1) * test_vals.std(ddof=1) ** 2
+                    )
+                    / (len(ctrl_vals) + len(test_vals) - 2)
                 )
-                continue
-
-            if ctrl_vals.empty or test_vals.empty:
-                continue
-
-            t, p = ttest_ind(ctrl_vals, test_vals, equal_var=False)
-            pooled = np.sqrt(
-                (
-                    (len(ctrl_vals) - 1) * ctrl_vals.std(ddof=1) ** 2
-                    + (len(test_vals) - 1) * test_vals.std(ddof=1) ** 2
+                d = abs((ctrl_mean - test_vals.mean()) / pooled) if pooled else np.nan
+                eff = (
+                    "Large"
+                    if d >= 0.8
+                    else "Medium"
+                    if d >= 0.5
+                    else "Small"
+                    if d >= 0.2
+                    else "Negligible"
                 )
-                / (len(ctrl_vals) + len(test_vals) - 2)
-            )
-            d = abs((ctrl_mean - test_vals.mean()) / pooled) if pooled else np.nan
-            eff = (
-                "Large"
-                if d >= 0.8
-                else "Medium"
-                if d >= 0.5
-                else "Small"
-                if d >= 0.2
-                else "Negligible"
-            )
-            rows.append([nice, cond, ctrl_mean, test_vals.mean(), t, p, d, eff])
+                rows_tbl.append([
+                    nice, cond,
+                    f"{ctrl_mean:.2f}", f"{test_vals.mean():.2f}",
+                    f"{t:.2f}", f"{p:.3g}", f"{d:.2f}", eff
+                ])
 
-    return pd.DataFrame(
-        rows,
-        columns=[
-            "Metric",
-            "Condition",
-            "Control_Mean",
-            "Test_Mean",
-            "t",
-            "p",
-            "d",
-            "Effect",
-        ],
-    )
+    # Define column names to match Excel export
+    stat_hdr = [
+        "Metric", "Test condition",
+        f"{control} mean", "Test mean",
+        "t", "p", "|d|", "Effect"
+    ]
+
+    stats_long = pd.DataFrame(rows_tbl, columns=stat_hdr)
+
+    # ---- add control rows ---------------------------------------------
+    ctrl_rows = []
+    for metric in stats_long["Metric"].unique():
+        base = stats_long.loc[stats_long["Metric"] == metric, f"{control} mean"].iat[0]
+        ctrl_rows.append({
+            "Metric": metric, "Test condition": control,
+            f"{control} mean": base, "Test mean": base,
+            "t": np.nan, "p": np.nan, "|d|": np.nan, "Effect": "-",
+        })
+    stats_long = pd.concat([stats_long, pd.DataFrame(ctrl_rows)], ignore_index=True)
+
+    # ---- numeric cast -------------------------------------------------
+    num_cols = ["Test mean", f"{control} mean", "t", "p", "|d|"]
+    stats_long[num_cols] = stats_long[num_cols].apply(pd.to_numeric, errors="coerce")
+
+    # ---- % change vs control ------------------------------------------
+    ctrl_means = stats_long.groupby("Metric")[f"{control} mean"].first()
+    stats_long["% Change"] = (
+        (stats_long["Test mean"] - stats_long["Metric"].map(ctrl_means))
+        / stats_long["Metric"].map(ctrl_means)
+    ).fillna(0)
+
+    return stats_long
 
 
 def long_to_wide(
@@ -151,52 +167,49 @@ def long_to_wide(
     metrics: "OrderedDict[str, str] | None" = None,
 ) -> pd.DataFrame:
     """
-    Pivot *stats_long* to the 2-level wide layout expected by Excel.
-
-    *metrics* (if given) provides the desired **order** of metric
-    blocks; otherwise the first-appearance order in *stats_long* is used.
+    Pivot *stats_long* to the 2-level wide layout expected by Excel,
+    with tidy formatting, column ordering, and % change.
     """
-    # Rename column to match desired Excel header
-    stats_long = stats_long.rename(columns={"Test_Mean": "Test mean"})
-
-    # ---- % change vs control -----------------------------------------
-    ctrl_means = (
-        stats_long[stats_long["Condition"] == control_name]
-        .set_index("Metric")["Control_Mean"]
-    )
-    stats_long["% Change"] = (
-        (stats_long["Test mean"] - stats_long["Metric"].map(ctrl_means))
-        / stats_long["Metric"].map(ctrl_means)
-    ).fillna(0)
-
-    wanted_stats = ["Test mean", "% Change", "p", "d", "Effect"]
+    wanted_stats = ["Test mean", "% Change", "p", "|d|", "Effect"]
 
     wide = (
-        stats_long.set_index(["Condition", "Metric"])[wanted_stats]
+        stats_long
+        .set_index(["Test condition", "Metric"])[wanted_stats]
         .unstack("Metric")
         .swaplevel(axis=1)
     )
 
-    # ---- metric block ordering ---------------------------------------
+    # ---- sort columns in tidy order -----------------------------------
     if metrics is not None:
-        metric_order = [metrics[col] for col in metrics]  # nice labels in order
-        sub_order = wanted_stats
-        ordered_cols: list[tuple] = []
-        for met in metric_order:
-            for sub in sub_order:
-                tup = (met, sub)
-                if tup in wide.columns:
-                    ordered_cols.append(tup)
-        wide = wide[ordered_cols]
+        metric_order = list(metrics.values())
+    else:
+        metric_order = list(dict.fromkeys(stats_long["Metric"]))
+
+    sub_order = ["% Change", "Effect", "Test mean", "p", "|d|"]
+    ordered_cols = []
+    for met in metric_order:
+        for sub in sub_order:
+            tup = (met, sub)
+            if tup in wide.columns:
+                ordered_cols.append(tup)
 
     # ---- insert N -----------------------------------------------------
     n_sizes = summary_df.reset_index().groupby("Condition").size()
     wide.insert(0, ("", "N"), n_sizes.reindex(wide.index).astype("Int64"))
 
-    # ---- control row first -------------------------------------------
-    if control_name in wide.index:
-        wide = wide.reindex(
-            [control_name] + [idx for idx in wide.index if idx != control_name]
-        )
+    # Final column order
+    wide = wide[[("", "N")] + ordered_cols]
+
+    # Clean up index
+    wide.index.name = None
+
+    # ---- reorder to match input order ---------------------------------
+    if metrics is not None:
+        all_conditions = list(summary_df["Condition"].unique())
+        if control_name in all_conditions:
+            all_conditions.remove(control_name)
+            all_conditions = [control_name] + all_conditions
+        wide = wide.reindex(all_conditions)
 
     return wide
+
