@@ -100,3 +100,5 @@ def save_stats_wide(
                     {"type": "formula",
                      "criteria": f'=AND(ISNUMBER({let}{first}),{let}{first}<0.05)',
                      "format": f_sig})
+print("[INFO] Metrics →", ROOT / f"{ROOT.name}_metrics.xlsx")
+print("[INFO] Stats   →", ROOT / f"{ROOT.name}_stats.xlsx")
