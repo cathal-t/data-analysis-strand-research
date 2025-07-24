@@ -58,57 +58,45 @@ def save_stats_wide(
         ws = xl.sheets["Stats"]
         book = xl.book
 
-        hdr = book.add_format(
-            {"bold": True, "bg_color": "#dfe6e9", "border": 1, "align": "center"}
-        )
+        hdr  = book.add_format({"bold": True, "bg_color": "#dfe6e9",
+                                "border": 1, "align": "center"})
         f_txt = book.add_format({"text_wrap": True})
         f_int = book.add_format({"num_format": "0", "align": "center"})
         f_num = book.add_format({"num_format": "0.00"})
         f_pct = book.add_format({"num_format": "0.0%"})
-        f_p = book.add_format({"num_format": "0.000"})
+        f_p   = book.add_format({"num_format": "0.000"})
         f_sig = book.add_format({"bg_color": "#c8e6c9"})
 
         # freeze header rows & first two cols
         ws.freeze_panes(2, 2)
         ws.set_row(0, None, hdr)
         ws.set_row(1, None, hdr)
-        ws.set_row(2, None, None, {"hidden": True})
+        ws.set_row(2, 0, None, {'hidden': True})
 
-        ws.set_column(0, 0, 32, f_txt)  # Condition
-        ws.set_column(1, 1, 6, f_int)   # N
+        ws.set_column(0, 0, 32, f_txt)   # Condition
+        ws.set_column(1, 1, 6,  f_int)   # N
 
-        # helper A1-style letter
-        def col_letter(idx: int) -> str:
+        # helper to convert idx → Excel letter(s)
+        def col_letter(idx):
             s = ""
             while idx >= 0:
                 s = chr(idx % 26 + 65) + s
                 idx = idx // 26 - 1
             return s
 
-        # walk remaining columns
-        for col_i, (_, stat) in enumerate(wide.columns[1:], start=2):
-            if stat == "Test mean":
-                width, fmt = 14, f_num
-            elif stat == "% Change":
-                width, fmt = 12, f_pct
-            elif stat == "p":
-                width, fmt = 12, f_p
-            else:  # |d| or Effect
-                width, fmt = 12, f_num
+        # column formats + p-value shading
+        for col_i, (met, stat) in enumerate(wide.columns[1:], start=2):
+            if   stat == "Test mean": width, fmt = 14, f_num
+            elif stat == "% Change":  width, fmt = 12, f_pct
+            elif stat == "p":         width, fmt = 12, f_p
+            else:                     width, fmt = 12, f_num
             ws.set_column(col_i, col_i, width, fmt)
 
-            # green shade for significant p
             if stat == "p":
                 first, last = 4, 4 + len(wide) - 1
                 let = col_letter(col_i)
                 ws.conditional_format(
-                    first - 1,
-                    col_i,
-                    last - 1,
-                    col_i,
-                    {
-                        "type": "formula",
-                        "criteria": f'=AND(ISNUMBER({let}{first}),{let}{first}<0.05)',
-                        "format": f_sig,
-                    },
-                )
+                    first-1, col_i, last-1, col_i,
+                    {"type": "formula",
+                     "criteria": f'=AND(ISNUMBER({let}{first}),{let}{first}<0.05)',
+                     "format": f_sig})
