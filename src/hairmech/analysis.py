@@ -81,7 +81,7 @@ def build_summary(
 
 def build_stats(
     summary_df: pd.DataFrame,
-    conditions: List[Condition],
+    conditions: List["Condition"],
     metrics: "OrderedDict[str, str]",
 ) -> pd.DataFrame:
     """
@@ -100,7 +100,6 @@ def build_stats(
         for cond in summary_df["Condition"].unique():
             test_vals = summary_df.loc[summary_df["Condition"] == cond, col].dropna()
 
-            # always emit a row for the control itself
             if cond == control:
                 rows.append(
                     [nice, cond, ctrl_mean, ctrl_mean, np.nan, np.nan, np.nan, "-"]
@@ -145,24 +144,14 @@ def build_stats(
     )
 
 
-# ──────────────────────────────── to wide ─────────────────────────────
-
-
 def long_to_wide(
     stats_long: pd.DataFrame,
     summary_df: pd.DataFrame,
     control_name: str,
     metrics: "OrderedDict[str, str] | None" = None,
 ) -> pd.DataFrame:
-    """
-    Pivot *stats_long* to the 2-level wide layout expected by Excel.
-
-    *metrics* (if given) provides the desired **order** of metric
-    blocks; otherwise the first-appearance order in *stats_long* is used.
-    """
     wanted_stats = ["Test_Mean", "% Change", "p", "d", "Effect"]
 
-    # ---- % change vs control -----------------------------------------
     ctrl_means = (
         stats_long[stats_long["Condition"] == control_name]
         .set_index("Metric")["Control_Mean"]
@@ -178,11 +167,9 @@ def long_to_wide(
         .swaplevel(axis=1)
     )
 
-    # ---- metric block ordering ---------------------------------------
     if metrics is not None:
-        metric_order = [metrics[col] for col in metrics]  # nice labels in order
+        metric_order = [metrics[col] for col in metrics]
         sub_order = wanted_stats
-        # produce a new column order list
         ordered_cols: list[tuple] = []
         for met in metric_order:
             for sub in sub_order:
@@ -191,14 +178,75 @@ def long_to_wide(
                     ordered_cols.append(tup)
         wide = wide[ordered_cols]
 
-    # ---- insert N -----------------------------------------------------
     n_sizes = summary_df.reset_index().groupby("Condition").size()
     wide.insert(0, ("", "N"), n_sizes.reindex(wide.index).astype("Int64"))
 
-    # ---- control row first -------------------------------------------
     if control_name in wide.index:
         wide = wide.reindex(
             [control_name] + [idx for idx in wide.index if idx != control_name]
         )
 
     return wide
+
+
+# ──────────────── Excel Export with Formatting ───────────────────
+
+def export_formatted_excel(wide: pd.DataFrame):
+    try:
+        import xlsxwriter
+        engine = "xlsxwriter"
+    except ModuleNotFoundError:
+        engine = None
+
+    with pd.ExcelWriter(ROOT / f"{ROOT.name}_stats.xlsx", engine=engine) as xl:
+        wide.to_excel(xl, sheet_name="Stats", index=True)
+
+        if engine == "xlsxwriter":
+            ws = xl.sheets["Stats"]
+            book = xl.book
+
+            hdr = book.add_format({
+                "bold": True, "bg_color": "#dfe6e9",
+                "border": 1, "align": "center"
+            })
+            f_txt = book.add_format({"text_wrap": True})
+            f_int = book.add_format({"num_format": "0", "align": "center"})
+            f_num = book.add_format({"num_format": "0.00"})
+            f_pct = book.add_format({"num_format": "0.0%"})
+            f_p = book.add_format({"num_format": "0.000"})
+            f_sig = book.add_format({"bg_color": "#c8e6c9"})
+
+            ws.freeze_panes(2, 2)
+            ws.set_row(0, None, hdr)
+            ws.set_row(1, None, hdr)
+            ws.set_row(2, 0, None, {'hidden': True})
+
+            ws.set_column(0, 0, 32, f_txt)   # Condition
+            ws.set_column(1, 1, 6, f_int)    # N
+
+            def col_letter(idx):
+                s = ""
+                while idx >= 0:
+                    s = chr(idx % 26 + 65) + s
+                    idx = idx // 26 - 1
+                return s
+
+            for col_i, (met, stat) in enumerate(wide.columns[1:], start=2):
+                if stat == "Test_Mean":
+                    width, fmt = 14, f_num
+                elif stat == "% Change":
+                    width, fmt = 12, f_pct
+                elif stat == "p":
+                    width, fmt = 12, f_p
+                else:
+                    width, fmt = 12, f_num
+                ws.set_column(col_i, col_i, width, fmt)
+
+                if stat == "p":
+                    first, last = 4, 4 + len(wide) - 1
+                    let = col_letter(col_i)
+                    ws.conditional_format(
+                        first - 1, col_i, last - 1, col_i,
+                        {"type": "formula",
+                         "criteria": f'=AND(ISNUMBER({let}{first}),{let}{first}<0.05)',
+                         "format": f_sig})
