@@ -64,7 +64,6 @@ def build_summary(
             {
                 "Slot": slot,
                 "Condition": slot_to_cond[slot],
-                "UTS_MPa": uts,
                 "Break_Stress_MPa": bs,
                 "Break_Strain_%": bp,
                 "Elastic_Modulus_GPa": E,
