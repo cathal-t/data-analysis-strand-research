@@ -101,7 +101,8 @@ class TensileTest:
         uts          = s[idx]              # Pa
         brk_stress   = s[idx]              # Pa (same as UTS in this file format)
         brk_strain   = e[idx] * 100        # %
-        linear_mask  = e <= 0.002
+        # Fit Young's modulus over 0.2%–0.8% strain (0.002–0.008 in decimal strain)
+        linear_mask = (e >= 0.002) & (e <= 0.008)
         E = (
             np.polyfit(e[linear_mask], s[linear_mask], 1)[0]
             if linear_mask.sum() > 1 else np.nan
