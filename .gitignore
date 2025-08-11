@@ -2,7 +2,8 @@
 #  Python & build artefacts
 # ─────────────────────────────
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyd
 *.pyo
 *.so
 *.egg
