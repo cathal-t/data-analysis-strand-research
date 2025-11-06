@@ -105,6 +105,19 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
         return TensileTest(Path(tmp.name))
 
 
+def _looks_like_absolute(path_str: str) -> bool:
+    """Return True if the given path string appears to be absolute on any platform."""
+
+    for pure_cls in (PureWindowsPath, PurePosixPath):
+        try:
+            pure_path = pure_cls(path_str)
+        except Exception:
+            continue
+        if pure_path.is_absolute():
+            return True
+    return False
+
+
 def _infer_original_dir(filename: str) -> Path | None:
     """Best-effort inference of the original directory of an uploaded file."""
 
@@ -136,6 +149,36 @@ def _infer_original_dir(filename: str) -> Path | None:
     return None
 
 
+def _parse_export_directory(value: str | None) -> Path | None:
+    """Parse a user-provided export directory, ensuring it is absolute if provided."""
+
+    if not value:
+        return None
+
+    value = value.strip()
+    if not value:
+        return None
+
+    fakepath_tokens = {"c:/fakepath", "c\\fakepath", "c:/fakepath/", "c\\fakepath\\"}
+
+    for pure_cls in (PureWindowsPath, PurePosixPath):
+        try:
+            pure_path = pure_cls(value)
+        except Exception:
+            continue
+
+        if not pure_path.is_absolute():
+            continue
+
+        parent_str = str(pure_path)
+        if parent_str.lower().replace("\\", "/") in fakepath_tokens:
+            continue
+
+        return Path(parent_str)
+
+    raise ValueError("Please provide an absolute export directory path.")
+
+
 def _store_uvc_file(raw: bytes, filename: str) -> tuple[Path, Path | None]:
     """Persist uploaded UVC bytes to a temporary directory.
 
@@ -153,7 +196,9 @@ def _store_uvc_file(raw: bytes, filename: str) -> tuple[Path, Path | None]:
 
 
 def _run_dimensional_export(
-    uvc_path: Path, original_dir: Path | None = None
+    uvc_path: Path,
+    original_dir: Path | None = None,
+    preferred_dir: Path | None = None,
 ) -> tuple[bool, str]:
     """Invoke UvWin4 to export dimensional data for the provided UVC file."""
 
@@ -164,11 +209,17 @@ def _run_dimensional_export(
     if not exe_path.exists():
         return False, f"UvWin executable not found at '{exe_path}'."
 
-    output_parent = (
-        original_dir
-        if original_dir is not None and original_dir.is_absolute()
-        else uvc_path.parent
-    )
+    candidates = [preferred_dir, original_dir]
+    output_parent = None
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if _looks_like_absolute(str(candidate)):
+            output_parent = candidate
+            break
+
+    if output_parent is None:
+        output_parent = uvc_path.parent
 
     try:
         output_parent.mkdir(parents=True, exist_ok=True)
@@ -176,8 +227,11 @@ def _run_dimensional_export(
         return False, f"Unable to prepare export directory '{output_parent}': {exc}"
     output_file = (output_parent / uvc_path.name).with_suffix(".txt")
 
+    uvc_abs = uvc_path.resolve()
+    output_abs = output_file.resolve()
+
     print(
-        f"Dimensional export debug - UVC path: {uvc_path}, export path: {output_file}"
+        f"Dimensional export debug - UVC path: {uvc_abs}, export path: {output_abs}"
     )
 
     cmd = [
@@ -185,9 +239,9 @@ def _run_dimensional_export(
         "-export",
         "dimensional",
         "-i",
-        uvc_path.name,
+        str(uvc_abs),
         "-o",
-        str(output_file),
+        str(output_abs),
     ]
 
     try:
@@ -515,6 +569,21 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 "backgroundColor": "#fafafa",
                             },
                         ),
+                        html.Div(
+                            [
+                                dbc.Label("Export directory (optional)", html_for="dim-export-dir"),
+                                dbc.Input(
+                                    id="dim-export-dir",
+                                    type="text",
+                                    placeholder="e.g. C:/Data/Exports",
+                                ),
+                                dbc.FormText(
+                                    "Provide a folder where dimensional exports should be saved."
+                                    " Leave blank to use the upload's original folder when available.",
+                                ),
+                            ],
+                            className="mt-3",
+                        ),
                         dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
                     ]
                 ),
@@ -637,15 +706,24 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-cleaning-alert", "is_open"),
         Input("upload-dim-cleaning", "contents"),
         State("upload-dim-cleaning", "filename"),
+        State("dim-export-dir", "value"),
         prevent_initial_call=True,
     )
-    def _process_dimensional_cleaning(contents, filename):
+    def _process_dimensional_cleaning(contents, filename, preferred_dir):
         if not contents or not filename:
             raise PreventUpdate
 
         raw = _b64_to_bytes(contents)
         uvc_path, original_dir = _store_uvc_file(raw, filename)
-        success, message = _run_dimensional_export(uvc_path, original_dir)
+
+        try:
+            preferred_path = _parse_export_directory(preferred_dir)
+        except ValueError as exc:
+            return str(exc), "danger", True
+
+        success, message = _run_dimensional_export(
+            uvc_path, original_dir=original_dir, preferred_dir=preferred_path
+        )
 
         return message, ("success" if success else "danger"), True
 
