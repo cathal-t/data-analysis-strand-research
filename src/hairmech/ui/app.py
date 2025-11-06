@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import base64
 import json
+import platform
 import re
+import subprocess
 import tempfile
 from collections import OrderedDict
 from dataclasses import asdict
@@ -101,6 +103,59 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
         tmp.write(raw)
         tmp.flush()
         return TensileTest(Path(tmp.name))
+
+
+def _store_uvc_file(raw: bytes, filename: str) -> Path:
+    """Persist uploaded UVC bytes to a temporary directory."""
+    safe_name = Path(filename).name or "uploaded.uvc"
+    tmp_dir = Path(tempfile.mkdtemp(prefix="uvc-upload-"))
+    target = tmp_dir / safe_name
+    target.write_bytes(raw)
+    return target
+
+
+def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
+    """Invoke UvWin4 to export dimensional data for the provided UVC file."""
+
+    if platform.system() != "Windows":
+        return False, "Dimensional export is only available on Windows installations."
+
+    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
+    if not exe_path.exists():
+        return False, f"UvWin executable not found at '{exe_path}'."
+
+    cmd = [
+        str(exe_path),
+        "-export",
+        "dimensional",
+        "-i",
+        uvc_path.name,
+        "-o",
+        "data.txt",
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(uvc_path.parent),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        return False, f"UvWin executable not found at '{exe_path}'."
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if exc.stderr else ""
+        stdout = exc.stdout.strip() if exc.stdout else ""
+        details = stderr or stdout or str(exc)
+        return False, f"Dimensional export failed: {details}"
+
+    output_file = uvc_path.parent / "data.txt"
+    if output_file.exists():
+        return True, f"Export complete. Output saved to: {output_file}"
+
+    message = result.stdout.strip() or "Dimensional export completed."
+    return True, message
 
 
 def _max_slot(areas: dict[int, float], tensile: TensileTest) -> int:
@@ -370,6 +425,51 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         style={"maxWidth": "1400px"},
     )
 
+    dim_clean_layout = dbc.Container(
+        [
+            _header(),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        html.H4("Upload Dimensional UVC File", className="card-title"),
+                        html.P(
+                            "Drag and drop or click to browse for a .uvc file. The file will be processed "
+                            "using the UvWin dimensional export tool.",
+                            className="text-muted",
+                        ),
+                        dcc.Upload(
+                            id="upload-dim-cleaning",
+                            accept=".uvc",
+                            multiple=False,
+                            children=html.Div(
+                                [
+                                    "Drag and drop or ",
+                                    html.A("browse", className="fw-semibold"),
+                                    " for a .uvc file",
+                                ],
+                                className="py-4",
+                            ),
+                            style={
+                                "width": "100%",
+                                "height": "120px",
+                                "lineHeight": "120px",
+                                "borderWidth": "2px",
+                                "borderStyle": "dashed",
+                                "borderRadius": "10px",
+                                "textAlign": "center",
+                                "backgroundColor": "#fafafa",
+                            },
+                        ),
+                        dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
+                    ]
+                ),
+                className="shadow-sm",
+            ),
+        ],
+        fluid=True,
+        style={"maxWidth": "700px"},
+    )
+
     landing_intro = dbc.Card(
         dbc.CardBody(
             [
@@ -456,13 +556,43 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _render_page(pathname: str):
         if pathname == "/analysis":
             return analysis_layout
+        if pathname == "/dimensional-cleaning":
+            return dim_clean_layout
         return landing_layout
+
+    @app.callback(
+        Output("url", "pathname", allow_duplicate=True),
+        Input("btn-landing-dim-cleaning", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _go_dim_cleaning(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return "/dimensional-cleaning"
 
     @app.callback(Output("cleaning-subbuttons", "style"), Input("btn-landing-cleaning", "n_clicks"))
     def _toggle_cleaning_subbuttons(n_clicks):
         hidden = {"display": "none"}
         shown = {"display": "block"}
         return shown if n_clicks else hidden
+
+    @app.callback(
+        Output("dim-cleaning-alert", "children"),
+        Output("dim-cleaning-alert", "color"),
+        Output("dim-cleaning-alert", "is_open"),
+        Input("upload-dim-cleaning", "contents"),
+        State("upload-dim-cleaning", "filename"),
+        prevent_initial_call=True,
+    )
+    def _process_dimensional_cleaning(contents, filename):
+        if not contents or not filename:
+            raise PreventUpdate
+
+        raw = _b64_to_bytes(contents)
+        uvc_path = _store_uvc_file(raw, filename)
+        success, message = _run_dimensional_export(uvc_path)
+
+        return message, ("success" if success else "danger"), True
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
