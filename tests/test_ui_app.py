@@ -35,15 +35,7 @@ def test_infer_original_dir_rejects_non_absolute_paths(filename: str):
     assert app._infer_original_dir(filename) is None
 
 
-def test_run_dimensional_export_uses_uvc_directory(monkeypatch, tmp_path):
-    uvc_path = tmp_path / "input.uvc"
-    uvc_path.write_text("dummy")
-
-    original_dir = tmp_path / "expected"
-    original_dir.mkdir()
-
-    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
-
+def _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd):
     real_exists = app.Path.exists
 
     def fake_exists(self):
@@ -55,8 +47,6 @@ def test_run_dimensional_export_uses_uvc_directory(monkeypatch, tmp_path):
     monkeypatch.setattr(app.Path, "exists", fake_exists, raising=False)
     monkeypatch.setattr(app.platform, "system", lambda: "Windows")
 
-    captured_cmd = {}
-
     def fake_run(cmd, cwd, capture_output, text, check):
         out_path = Path(cmd[cmd.index("-o") + 1])
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,9 +57,42 @@ def test_run_dimensional_export_uses_uvc_directory(monkeypatch, tmp_path):
 
     monkeypatch.setattr(app.subprocess, "run", fake_run)
 
-    success, message = app._run_dimensional_export(uvc_path, original_dir)
+
+def test_run_dimensional_export_uses_uvc_directory_by_default(monkeypatch, tmp_path):
+    uvc_path = tmp_path / "input.uvc"
+    uvc_path.write_text("dummy")
+
+    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
+
+    captured_cmd = {}
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+
+    success, message = app._run_dimensional_export(uvc_path, None)
 
     expected_output = uvc_path.with_suffix(".txt")
+    assert success is True
+    assert expected_output.exists()
+    assert message == f"Export complete. Output saved to: {expected_output}"
+    assert captured_cmd["cwd"] == str(uvc_path.parent)
+    assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
+
+
+def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
+    uvc_path = tmp_path / "input.uvc"
+    uvc_path.write_text("dummy")
+
+    original_dir = tmp_path / "expected"
+    original_dir.mkdir()
+
+    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
+
+    captured_cmd = {}
+
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+
+    success, message = app._run_dimensional_export(uvc_path, original_dir)
+
+    expected_output = (original_dir / uvc_path.name).with_suffix(".txt")
     assert success is True
     assert expected_output.exists()
     assert message == f"Export complete. Output saved to: {expected_output}"
