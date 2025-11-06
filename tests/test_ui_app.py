@@ -35,7 +35,7 @@ def test_infer_original_dir_rejects_non_absolute_paths(filename: str):
     assert app._infer_original_dir(filename) is None
 
 
-def test_run_dimensional_export_prefers_original_directory(monkeypatch, tmp_path):
+def test_run_dimensional_export_uses_uvc_directory(monkeypatch, tmp_path):
     uvc_path = tmp_path / "input.uvc"
     uvc_path.write_text("dummy")
 
@@ -69,7 +69,7 @@ def test_run_dimensional_export_prefers_original_directory(monkeypatch, tmp_path
 
     success, message = app._run_dimensional_export(uvc_path, original_dir)
 
-    expected_output = original_dir / "input.txt"
+    expected_output = uvc_path.with_suffix(".txt")
     assert success is True
     assert expected_output.exists()
     assert message == f"Export complete. Output saved to: {expected_output}"

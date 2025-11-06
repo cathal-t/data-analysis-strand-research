@@ -164,17 +164,11 @@ def _run_dimensional_export(
     if not exe_path.exists():
         return False, f"UvWin executable not found at '{exe_path}'."
 
-    if original_dir and original_dir.is_absolute():
-        candidate = original_dir / uvc_path.with_suffix(".txt").name
-        parent = candidate.parent
-        if not parent.exists():
-            try:
-                parent.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                candidate = None
-        output_file = candidate or uvc_path.with_suffix(".txt")
-    else:
-        output_file = uvc_path.with_suffix(".txt")
+    output_file = uvc_path.with_suffix(".txt")
+
+    print(
+        f"Dimensional export debug - UVC path: {uvc_path}, export path: {output_file}"
+    )
 
     cmd = [
         str(exe_path),
