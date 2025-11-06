@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from io import StringIO
 from pathlib import Path
 import numpy as np
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 class TensileTest:
     """
@@ -54,8 +58,12 @@ class TensileTest:
                     if low in self.MPa_HEADERS]
         self.is_mpa = bool(mpa_cols)
         stress_col  = mpa_cols[0] if self.is_mpa else "gmf"
-        print(f"[DEBUG] Tensile units: "
-              f"{'MPa' if self.is_mpa else 'gmf'} (column '{stress_col}')")
+        logger.debug(
+            "Tensile units: %s (column '%s')",
+            "MPa" if self.is_mpa else "gmf",
+            stress_col,
+        )
+
 
         # ---- clean numeric data -------------------------------------------
         df.rename(columns={stress_col: "raw_stress"}, inplace=True)

@@ -1,11 +1,15 @@
 from __future__ import annotations  # optional but nice for type hints
 
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 class DimensionalData:
     """
@@ -43,7 +47,9 @@ class DimensionalData:
         except ValueError as exc:
             raise ValueError("Description column not found") from exc
 
-        print(f"[DEBUG] Area col = {area_idx} · Description col = {desc_idx}")
+        logger.debug(
+            "Area col = %s · Description col = %s", area_idx, desc_idx
+        )
 
         # 3 ── parse every data row
         slot_vals: Dict[int, List[float]] = {}
@@ -82,6 +88,9 @@ class DimensionalData:
               .reset_index()
               .sort_values("Slot")
         )
-        print(f"[DEBUG] Dimensional – slots parsed: {len(self.map)}")
-        print("[DEBUG] First 10 rows:")
-        print(df_debug.head(100).to_string(index=False))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Dimensional – slots parsed: %s", len(self.map))
+            logger.debug(
+                "First 10 rows:\n%s",
+                df_debug.head(100).to_string(index=False),
+            )
