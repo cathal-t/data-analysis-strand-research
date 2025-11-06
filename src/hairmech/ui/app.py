@@ -124,6 +124,8 @@ def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
     if not exe_path.exists():
         return False, f"UvWin executable not found at '{exe_path}'."
 
+    output_file = uvc_path.with_suffix(".txt")
+
     cmd = [
         str(exe_path),
         "-export",
@@ -131,7 +133,7 @@ def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
         "-i",
         uvc_path.name,
         "-o",
-        "data.txt",
+        output_file.name,
     ]
 
     try:
@@ -150,7 +152,6 @@ def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
         details = stderr or stdout or str(exc)
         return False, f"Dimensional export failed: {details}"
 
-    output_file = uvc_path.parent / "data.txt"
     if output_file.exists():
         return True, f"Export complete. Output saved to: {output_file}"
 
