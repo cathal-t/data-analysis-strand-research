@@ -250,8 +250,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     )
 
     # ═══════════ LAYOUT ═══════════
-    header = dbc.Row(dbc.Col(html.H3("Strand Research - Data Analysis"), width="auto"),
-                     className="mt-2 mb-3")
+
+    def _header() -> dbc.Row:
+        return dbc.Row(
+            dbc.Col(html.H3("Strand Research - Data Analysis"), width="auto"),
+            className="mt-2 mb-3",
+        )
 
     # Upload card
     upload_card = dbc.Card(
@@ -351,15 +355,13 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     # Figure card
     fig_card = dbc.Card(dbc.CardBody(html.Div(id="fig-container")), className="shadow-sm")
 
-    # Main container
-    app.layout = dbc.Container(
+    analysis_layout = dbc.Container(
         [
-            header,
+            _header(),
             upload_card,
             cond_card,
             actions_card,
             fig_card,
-            # hidden stores / downloads
             dcc.Download(id="dl-metrics"),
             dcc.Download(id="dl-stats"),
             dcc.Store(id="exp-data"),
@@ -367,6 +369,67 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         fluid=True,
         style={"maxWidth": "1400px"},
     )
+
+    landing_intro = dbc.Card(
+        dbc.CardBody(
+            [
+                html.H4("Welcome to Strand Research Analytics", className="card-title"),
+                html.P(
+                    "Select a workflow to get started. Additional modules will be available soon.",
+                    className="text-muted",
+                ),
+                html.Div(
+                    [
+                        dbc.Button(
+                            "Data Cleaning (coming soon)",
+                            id="btn-landing-cleaning",
+                            color="secondary",
+                            disabled=True,
+                            className="w-100",
+                        ),
+                        dbc.Button(
+                            "Dimensional & Tensile Analysis",
+                            id="btn-landing-analysis",
+                            color="primary",
+                            href="/analysis",
+                            className="w-100",
+                        ),
+                        dbc.Button(
+                            "Multiple Cassette Analysis (coming soon)",
+                            id="btn-landing-cross",
+                            color="secondary",
+                            disabled=True,
+                            className="w-100",
+                        ),
+                    ],
+                    className="d-grid gap-3",
+                ),
+            ]
+        ),
+        className="shadow-sm",
+    )
+
+    landing_layout = dbc.Container(
+        [
+            _header(),
+            landing_intro,
+        ],
+        fluid=True,
+        style={"maxWidth": "900px"},
+    )
+
+    app.layout = html.Div(
+        [
+            dcc.Location(id="url"),
+            html.Div(id="page-content"),
+        ]
+    )
+
+    @app.callback(Output("page-content", "children"), Input("url", "pathname"))
+    def _render_page(pathname: str):
+        if pathname == "/analysis":
+            return analysis_layout
+        return landing_layout
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
