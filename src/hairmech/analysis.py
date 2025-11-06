@@ -20,6 +20,19 @@ from .io.config import Condition
 from .tensile import TensileTest
 from .util import post_gradient
 
+# Canonical mapping of metric column names → human-friendly labels used across
+# CLI exports, figures, and UI components.  Keep this in sync with the columns
+# emitted by ``build_summary``.
+METRIC_LABELS: "OrderedDict[str, str]" = OrderedDict(
+    [
+        ("Elastic_Modulus_GPa", "Elastic modulus (GPa)"),
+        ("Yield_Gradient_MPa_perc", "Yield-grad. (MPa / %ε)"),
+        ("Post_Gradient_MPa_perc", "Post-grad. (MPa / %ε)"),
+        ("Break_Stress_MPa", "Break stress (MPa)"),
+        ("Break_Strain_%", "Break strain (%)"),
+    ]
+)
+
 # ────────────────────────── internal helpers ──────────────────────────
 
 

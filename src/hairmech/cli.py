@@ -8,7 +8,7 @@ from typing import List
 import click
 import pandas as pd
 
-from .analysis import build_stats, build_summary, long_to_wide
+from .analysis import METRIC_LABELS, build_stats, build_summary, long_to_wide
 from .dimensional import DimensionalData
 from .io.config import ConfigError, load_config
 from .io.export import save_metrics, save_stats_wide
@@ -52,15 +52,8 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
 
         summary = build_summary(areas, tensile, conds)
 
-        metrics_map = {
-            "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
-            "Yield_Gradient_MPa_perc": "Yield-grad. (MPA / %ε)",
-            "Post_Gradient_MPA_perc": "Post-grad. (MPA / %ε)",
-            "Break_Stress_MPa": "Break stress (MPa)",
-            "Break_Strain_%": "Break strain (%)",
-        }
-        stats_long = build_stats(summary, conds, metrics_map)
-        stats_wide = long_to_wide(stats_long, summary, control_name)
+        stats_long = build_stats(summary, conds, METRIC_LABELS)
+        stats_wide = long_to_wide(stats_long, summary, control_name, METRIC_LABELS)
 
         out_dir = out_dir or input_dir / "results"
         out_dir.mkdir(parents=True, exist_ok=True)

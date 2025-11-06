@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence, Dict, List
+from typing import Dict, List, Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -8,6 +8,7 @@ from plotly.subplots import make_subplots
 from matplotlib.cm import tab20
 from matplotlib.colors import to_hex
 
+from .analysis import METRIC_LABELS
 from .io.config import Condition
 from .util import (
     rgba,
@@ -129,16 +130,6 @@ def make_overlay(
 
 
 
-# ───────────────────── 3 × 2 violin-grid figure ──────────────────────
-_METRICS: Dict[str, str] = {
-    "Elastic_Modulus_GPa":     "Elastic modulus (GPa)",
-    "Yield_Gradient_MPa_perc": "Yield-grad. (MPa / %ε)",
-    "Post_Gradient_MPa_perc":  "Post-grad. (MPa / %ε)",
-    "Break_Stress_MPa":        "Break stress (MPa)",
-    "Break_Strain_%":          "Break strain (%)",
-}
-
-
 # ────────────────────────────────────────────────────────────────────
 # Make 3 × 2 violin grid — identical to the original notebook
 def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Figure:
@@ -146,7 +137,7 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
     3 × 2 grid of metric distributions – visually identical to the Jupyter notebook.
     """
     # ---- palette identical to notebook ------------------------------------
-    metrics = _METRICS
+    metrics = METRIC_LABELS
     n_rows, n_cols = 3, 2
 
     cond_names = [c.name for c in conds]
