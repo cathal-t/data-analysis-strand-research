@@ -378,42 +378,34 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     "Select a workflow to get started. Additional modules will be available soon.",
                     className="text-muted",
                 ),
-                dbc.Row(
+                dbc.Stack(
                     [
-                        dbc.Col(
-                            dbc.Button(
-                                "Data Cleaning (coming soon)",
-                                id="btn-landing-cleaning",
-                                color="secondary",
-                                disabled=True,
-                                className="w-100",
-                            ),
-                            md=4,
-                            className="mb-2 mb-md-0",
+                        dbc.Button(
+                            "Data Cleaning (coming soon)",
+                            id="btn-landing-cleaning",
+                            color="secondary",
+                            disabled=True,
+                            className="mx-auto",
+                            style={"width": "70%"},
                         ),
-                        dbc.Col(
-                            dbc.Button(
-                                "Dimensional & Tensile Analysis",
-                                id="btn-landing-analysis",
-                                color="primary",
-                                href="/analysis",
-                                className="w-100",
-                            ),
-                            md=4,
-                            className="mb-2 mb-md-0",
+                        dbc.Button(
+                            "Dimensional & Tensile Analysis",
+                            id="btn-landing-analysis",
+                            color="primary",
+                            href="/analysis",
+                            className="mx-auto",
+                            style={"width": "70%"},
                         ),
-                        dbc.Col(
-                            dbc.Button(
-                                "Cross-Cassette Analysis (coming soon)",
-                                id="btn-landing-cross",
-                                color="secondary",
-                                disabled=True,
-                                className="w-100",
-                            ),
-                            md=4,
+                        dbc.Button(
+                            "Multiple Cassette Analysis (coming soon)",
+                            id="btn-landing-cross",
+                            color="secondary",
+                            disabled=True,
+                            className="mx-auto",
+                            style={"width": "70%"},
                         ),
                     ],
-                    className="g-3",
+                    gap=3,
                 ),
             ]
         ),
