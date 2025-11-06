@@ -24,7 +24,7 @@ import tempfile
 from collections import OrderedDict
 from dataclasses import asdict
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import List, Tuple
 
 import dash
@@ -105,16 +105,47 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
         return TensileTest(Path(tmp.name))
 
 
-def _store_uvc_file(raw: bytes, filename: str) -> Path:
-    """Persist uploaded UVC bytes to a temporary directory."""
+def _infer_original_dir(filename: str) -> Path | None:
+    """Best-effort inference of the original directory of an uploaded file."""
+
+    if not filename:
+        return None
+
+    # Try common path flavours. If they yield a meaningful parent directory, use it.
+    for pure_cls in (PureWindowsPath, PurePosixPath):
+        try:
+            pure_path = pure_cls(filename)
+        except Exception:
+            continue
+
+        parent = pure_path.parent
+        if not parent or str(parent) in ("", ".", "\\", "/"):
+            continue
+
+        return Path(str(parent))
+
+    return None
+
+
+def _store_uvc_file(raw: bytes, filename: str) -> tuple[Path, Path | None]:
+    """Persist uploaded UVC bytes to a temporary directory.
+
+    Returns the path to the stored copy and, if inferrable, the original parent
+    directory of the uploaded file so that downstream steps can mirror outputs
+    alongside the source data.
+    """
+
     safe_name = Path(filename).name or "uploaded.uvc"
     tmp_dir = Path(tempfile.mkdtemp(prefix="uvc-upload-"))
     target = tmp_dir / safe_name
     target.write_bytes(raw)
-    return target
+
+    return target, _infer_original_dir(filename)
 
 
-def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
+def _run_dimensional_export(
+    uvc_path: Path, original_dir: Path | None = None
+) -> tuple[bool, str]:
     """Invoke UvWin4 to export dimensional data for the provided UVC file."""
 
     if platform.system() != "Windows":
@@ -124,6 +155,16 @@ def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
     if not exe_path.exists():
         return False, f"UvWin executable not found at '{exe_path}'."
 
+    if original_dir:
+        output_file = original_dir / uvc_path.with_suffix(".txt").name
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # If we cannot prepare the original directory, fall back to temp dir.
+            output_file = uvc_path.with_suffix(".txt")
+    else:
+        output_file = uvc_path.with_suffix(".txt")
+
     cmd = [
         str(exe_path),
         "-export",
@@ -131,7 +172,7 @@ def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
         "-i",
         uvc_path.name,
         "-o",
-        "data.txt",
+        str(output_file),
     ]
 
     try:
@@ -150,7 +191,6 @@ def _run_dimensional_export(uvc_path: Path) -> tuple[bool, str]:
         details = stderr or stdout or str(exc)
         return False, f"Dimensional export failed: {details}"
 
-    output_file = uvc_path.parent / "data.txt"
     if output_file.exists():
         return True, f"Export complete. Output saved to: {output_file}"
 
@@ -589,8 +629,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             raise PreventUpdate
 
         raw = _b64_to_bytes(contents)
-        uvc_path = _store_uvc_file(raw, filename)
-        success, message = _run_dimensional_export(uvc_path)
+        uvc_path, original_dir = _store_uvc_file(raw, filename)
+        success, message = _run_dimensional_export(uvc_path, original_dir)
 
         return message, ("success" if success else "danger"), True
 
