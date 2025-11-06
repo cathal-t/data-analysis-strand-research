@@ -381,12 +381,36 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 dbc.Stack(
                     [
                         dbc.Button(
-                            "Data Cleaning (coming soon)",
+                            "Data Cleaning",
                             id="btn-landing-cleaning",
                             color="secondary",
-                            disabled=True,
                             className="mx-auto",
                             style={"width": "70%"},
+                        ),
+                        html.Div(
+                            dbc.Stack(
+                                [
+                                    dbc.Button(
+                                        "Dimensional Cleaning",
+                                        id="btn-landing-dim-cleaning",
+                                        color="light",
+                                        className="mx-auto",
+                                        style={"width": "100%"},
+                                    ),
+                                    dbc.Button(
+                                        "Tensile Cleaning",
+                                        id="btn-landing-ten-cleaning",
+                                        color="light",
+                                        className="mx-auto",
+                                        style={"width": "100%"},
+                                    ),
+                                ],
+                                gap=2,
+                                className="mx-auto",
+                                style={"width": "70%"},
+                            ),
+                            id="cleaning-subbuttons",
+                            style={"display": "none"},
                         ),
                         dbc.Button(
                             "Dimensional & Tensile Analysis",
@@ -433,6 +457,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if pathname == "/analysis":
             return analysis_layout
         return landing_layout
+
+    @app.callback(Output("cleaning-subbuttons", "style"), Input("btn-landing-cleaning", "n_clicks"))
+    def _toggle_cleaning_subbuttons(n_clicks):
+        hidden = {"display": "none"}
+        shown = {"display": "block"}
+        return shown if n_clicks else hidden
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
