@@ -12,7 +12,7 @@ from .analysis import build_stats, build_summary, long_to_wide
 from .dimensional import DimensionalData
 from .io.config import ConfigError, load_config
 from .io.export import save_metrics, save_stats_wide
-from .plots import make_overlay, make_violin_grid
+from .plots import METRICS, make_overlay, make_violin_grid
 from .tensile import TensileTest
 from .ui import build_dash_app
 
@@ -52,14 +52,7 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
 
         summary = build_summary(areas, tensile, conds)
 
-        metrics_map = {
-            "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
-            "Yield_Gradient_MPa_perc": "Yield-grad. (MPA / %ε)",
-            "Post_Gradient_MPA_perc": "Post-grad. (MPA / %ε)",
-            "Break_Stress_MPa": "Break stress (MPa)",
-            "Break_Strain_%": "Break strain (%)",
-        }
-        stats_long = build_stats(summary, conds, metrics_map)
+        stats_long = build_stats(summary, conds, METRICS)
         stats_wide = long_to_wide(stats_long, summary, control_name)
 
         out_dir = out_dir or input_dir / "results"

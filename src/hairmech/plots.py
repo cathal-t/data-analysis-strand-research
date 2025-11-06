@@ -1,34 +1,34 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Sequence, Dict, List
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from matplotlib.cm import tab20
+from matplotlib.colors import to_hex
 
 from .io.config import Condition
 from .util import (
     rgba,
-    hex_to_rgb01,
     post_seg,          # returns two points for dotted helper
     yld_seg,           # returns two points for dashed helper
 )
 
 # ───────────────────────────── palette ──────────────────────────────
-_SAFE: List[str] = [
+_SAFE_HEX: List[str] = [
     "#3E79F7", "#F75F00", "#8E44AD", "#2ECC71",
     "#F1C40F", "#16A085", "#E74C3C", "#34495E",
 ]
 
 
-def _palette(n: int) -> List[str]:
+def _palette_hex(n: int) -> List[str]:
     """Return *n* distinct colours, colour-blind-safe first, then tab20."""
-    cols = _SAFE.copy()
+    cols = _SAFE_HEX.copy()
     while len(cols) < n:
-        i = len(cols)
-        cols.append(rgba(tab20(i / 20)[:3]))
+        idx = len(cols)
+        cols.append(to_hex(tab20(idx / 20)))
     return cols[:n]
 
 
@@ -50,7 +50,7 @@ def make_overlay(
     -------
     plotly.graph_objects.Figure
     """
-    palette = _palette(len(conditions))
+    palette = _palette_hex(len(conditions))
     colour: Dict[str, str] = {c.name: palette[i] for i, c in enumerate(conditions)}
 
     fig = go.Figure()
@@ -128,49 +128,32 @@ def make_overlay(
     return fig
 
 
+
+
 # ───────────────────── 3 × 2 violin-grid figure ──────────────────────
-_METRICS: Dict[str, str] = {
-    "Elastic_Modulus_GPa":     "Elastic modulus (GPa)",
-    "Yield_Gradient_MPa_perc": "Yield-grad. (MPa / %ε)",
-    "Post_Gradient_MPa_perc":  "Post-grad. (MPa / %ε)",
-    "Break_Stress_MPa":        "Break stress (MPa)",
-    "Break_Strain_%":          "Break strain (%)",
-}
+METRICS: OrderedDict[str, str] = OrderedDict(
+    [
+        ("Elastic_Modulus_GPa", "Elastic modulus (GPa)"),
+        ("Yield_Gradient_MPa_perc", "Yield-grad. (MPa / %ε)"),
+        ("Post_Gradient_MPa_perc", "Post-grad. (MPa / %ε)"),
+        ("Break_Stress_MPa", "Break stress (MPa)"),
+        ("Break_Strain_%", "Break strain (%)"),
+    ]
+)
 
 
 # ────────────────────────────────────────────────────────────────────
 # Make 3 × 2 violin grid — identical to the original notebook
-# -------------------------------------------------------------------
-from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-
-SAFE = ["#3E79F7", "#F75F00", "#8E44AD", "#2ECC71",
-        "#F1C40F", "#16A085", "#E74C3C", "#34495E"]
-
-def _rgba(rgb01, alpha=1.0):
-    r, g, b = [int(v * 255) for v in rgb01]
-    return f"rgba({r},{g},{b},{alpha})"
-
-def _hex_to_rgb01(hex_):
-    return tuple(int(hex_[i:i + 2], 16) / 255 for i in (0, 2, 4))
-
-
 def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Figure:
     """
     3 × 2 grid of metric distributions – visually identical to the Jupyter notebook.
     """
     # ---- palette identical to notebook ------------------------------------
-    metrics = {
-        "Elastic_Modulus_GPa": "Elastic modulus (GPa)",
-        "Yield_Gradient_MPa_perc": "Yield-grad. (MPa / %ε)",
-        "Post_Gradient_MPa_perc": "Post-grad. (MPa / %ε)",
-        "Break_Stress_MPa": "Break stress (MPa)",
-        "Break_Strain_%": "Break strain (%)",
-    }
+    metrics = METRICS
     n_rows, n_cols = 3, 2
 
     cond_names = [c.name for c in conds]
-    palette = SAFE[: len(cond_names)]
+    palette = _palette_hex(len(cond_names))
     color_lut = dict(zip(cond_names, palette))
 
     fig = make_subplots(
@@ -196,7 +179,7 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
                     legendgroup=cond,
                     showlegend=False,
                     line_color=color_lut[cond],
-                    fillcolor=_rgba(_hex_to_rgb01(color_lut[cond].lstrip("#")), 0.18),
+                    fillcolor=rgba(color_lut[cond], 0.18),
                     meanline_visible=True,
                     points="all",
                     width=0.6,
