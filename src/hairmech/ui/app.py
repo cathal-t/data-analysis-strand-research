@@ -166,9 +166,14 @@ def _run_dimensional_export(
 
     output_parent = (
         original_dir
-        if original_dir is not None and original_dir.is_dir() and original_dir.is_absolute()
+        if original_dir is not None and original_dir.is_absolute()
         else uvc_path.parent
     )
+
+    try:
+        output_parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, f"Unable to prepare export directory '{output_parent}': {exc}"
     output_file = (output_parent / uvc_path.name).with_suffix(".txt")
 
     print(

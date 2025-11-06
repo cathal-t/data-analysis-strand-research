@@ -98,3 +98,25 @@ def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
     assert message == f"Export complete. Output saved to: {expected_output}"
     assert captured_cmd["cwd"] == str(uvc_path.parent)
     assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
+
+
+def test_run_dimensional_export_creates_missing_original_dir(monkeypatch, tmp_path):
+    uvc_path = tmp_path / "input.uvc"
+    uvc_path.write_text("dummy")
+
+    original_dir = tmp_path / "nested" / "expected"
+
+    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
+
+    captured_cmd = {}
+
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+
+    success, message = app._run_dimensional_export(uvc_path, original_dir)
+
+    expected_output = (original_dir / uvc_path.name).with_suffix(".txt")
+    assert success is True
+    assert expected_output.exists()
+    assert message == f"Export complete. Output saved to: {expected_output}"
+    assert captured_cmd["cwd"] == str(uvc_path.parent)
+    assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
