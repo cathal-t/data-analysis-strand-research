@@ -429,7 +429,7 @@ def _make_dimensional_record_fig(
             go.Scatter(
                 x=x_vals,
                 y=df[col],
-                mode="lines+markers",
+                mode="lines",
                 name=col,
                 showlegend=False,
             ),
@@ -450,6 +450,86 @@ def _make_dimensional_record_fig(
     return fig
 
 
+def _make_slice_error_table(df: pd.DataFrame, slice_cols: list[str]) -> html.Div:
+    cols = [c for c in slice_cols if c in df.columns]
+    if not cols:
+        return html.Div()
+
+    min_vals: dict[str, float] = {}
+    max_vals: dict[str, float] = {}
+    for col in cols:
+        series = pd.to_numeric(df[col], errors="coerce")
+        series = series.dropna()
+        if series.empty:
+            continue
+        min_vals[col] = float(series.min())
+        max_vals[col] = float(series.max())
+
+    if not min_vals or not max_vals:
+        return html.Div()
+
+    record_min = min(min_vals.values())
+    record_max = max(max_vals.values())
+
+    def _coeff(val: float | None, ref: float | None) -> float | None:
+        if val is None or ref is None:
+            return None
+        if ref == 0:
+            return None
+        return abs(val - ref) / abs(ref) * 100.0
+
+    def _fmt(value: float | None, suffix: str = "") -> str:
+        if value is None or pd.isna(value):
+            return "–"
+        return f"{value:.2f}{suffix}"
+
+    def _style_pct(value: float | None) -> dict:
+        if value is None:
+            return {}
+        if value > 10:
+            return {"color": "#c53030", "fontWeight": "600"}
+        return {}
+
+    header = html.Thead(
+        html.Tr(
+            [
+                html.Th("Slice"),
+                html.Th("Min"),
+                html.Th("Max"),
+                html.Th("Min coeff. error"),
+                html.Th("Max coeff. error"),
+            ]
+        )
+    )
+
+    rows = []
+    for col in cols:
+        min_val = min_vals.get(col)
+        max_val = max_vals.get(col)
+        min_coeff = _coeff(min_val, record_min)
+        max_coeff = _coeff(max_val, record_max)
+        rows.append(
+            html.Tr(
+                [
+                    html.Th(col, scope="row"),
+                    html.Td(_fmt(min_val)),
+                    html.Td(_fmt(max_val)),
+                    html.Td(_fmt(min_coeff, suffix="%"), style=_style_pct(min_coeff)),
+                    html.Td(_fmt(max_coeff, suffix="%"), style=_style_pct(max_coeff)),
+                ]
+            )
+        )
+
+    body = html.Tbody(rows)
+
+    return html.Div(
+        [
+            html.H6("Slice extremes", className="mt-4"),
+            dbc.Table([header, body], bordered=True, size="sm", className="mb-0"),
+        ]
+    )
+
+
 def _build_dimensional_plot_children(
     records: dict[int, pd.DataFrame], slice_cols: list[str]
 ) -> list:
@@ -468,11 +548,13 @@ def _build_dimensional_plot_children(
         if df.empty:
             continue
         fig = _make_dimensional_record_fig(record_id, df, slice_cols)
+        error_table = _make_slice_error_table(df, slice_cols)
         children.append(
             dbc.Card(
                 dbc.CardBody(
                     [
                         dcc.Graph(figure=fig, config={"displaylogo": False}),
+                        error_table,
                     ]
                 ),
                 className="mb-4 shadow-sm",
