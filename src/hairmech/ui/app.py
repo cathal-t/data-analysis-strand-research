@@ -31,7 +31,7 @@ import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Dash, dcc, html, dash_table
-from dash.dependencies import Input, Output, State, ALL
+from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -450,14 +450,8 @@ def _make_dimensional_record_fig(
     return fig
 
 
-def _make_slice_error_table(
-    record_id: int,
-    df: pd.DataFrame,
-    slice_cols: list[str],
-    removed_slices: set[str] | None = None,
-) -> html.Div:
+def _make_slice_error_table(df: pd.DataFrame, slice_cols: list[str]) -> html.Div:
     cols = [c for c in slice_cols if c in df.columns]
-    removed = removed_slices or set()
     if not cols:
         return html.Div()
 
@@ -479,11 +473,8 @@ def _make_slice_error_table(
             return None
         return sum(values.values()) / len(values)
 
-    active_min_vals = {k: v for k, v in min_vals.items() if k not in removed}
-    active_max_vals = {k: v for k, v in max_vals.items() if k not in removed}
-
-    record_min = _average(active_min_vals)
-    record_max = _average(active_max_vals)
+    record_min = _average(min_vals)
+    record_max = _average(max_vals)
 
     def _coeff(val: float | None, ref: float | None) -> float | None:
         if val is None or ref is None:
@@ -512,7 +503,6 @@ def _make_slice_error_table(
                 html.Th("Max"),
                 html.Th("Min coeff. error"),
                 html.Th("Max coeff. error"),
-                html.Th("Remove slice"),
             ]
         )
     )
@@ -521,12 +511,8 @@ def _make_slice_error_table(
     for col in cols:
         min_val = min_vals.get(col)
         max_val = max_vals.get(col)
-        is_removed = col in removed
-        min_coeff = _coeff(min_val, record_min) if not is_removed else None
-        max_coeff = _coeff(max_val, record_max) if not is_removed else None
-        button_label = "Restore Slice" if is_removed else "Remove Slice"
-        button_color = "secondary" if is_removed else "danger"
-        row_style = {"opacity": 0.6} if is_removed else {}
+        min_coeff = _coeff(min_val, record_min)
+        max_coeff = _coeff(max_val, record_max)
         rows.append(
             html.Tr(
                 [
@@ -535,21 +521,7 @@ def _make_slice_error_table(
                     html.Td(_fmt(max_val)),
                     html.Td(_fmt(min_coeff, suffix="%"), style=_style_pct(min_coeff)),
                     html.Td(_fmt(max_coeff, suffix="%"), style=_style_pct(max_coeff)),
-                    html.Td(
-                        dbc.Button(
-                            button_label,
-                            id={
-                                "type": "dim-slice-toggle",
-                                "record": record_id,
-                                "slice": col,
-                            },
-                            color=button_color,
-                            outline=is_removed,
-                            size="sm",
-                        )
-                    ),
-                ],
-                style=row_style,
+                ]
             )
         )
 
@@ -564,9 +536,7 @@ def _make_slice_error_table(
 
 
 def _build_dimensional_plot_children(
-    records: dict[int, pd.DataFrame],
-    slice_cols: list[str],
-    removed_map: dict[int, set[str]] | None = None,
+    records: dict[int, pd.DataFrame], slice_cols: list[str]
 ) -> list:
     if not records:
         return [
@@ -583,12 +553,7 @@ def _build_dimensional_plot_children(
         if df.empty:
             continue
         fig = _make_dimensional_record_fig(record_id, df, slice_cols)
-        error_table = _make_slice_error_table(
-            record_id,
-            df,
-            slice_cols,
-            removed_slices=(removed_map or {}).get(record_id, set()),
-        )
+        error_table = _make_slice_error_table(df, slice_cols)
         children.append(
             dbc.Card(
                 dbc.CardBody(
@@ -821,8 +786,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 ),
                 className="shadow-sm",
             ),
-            dcc.Store(id="dim-cleaning-records"),
-            dcc.Store(id="dim-cleaning-removed", data={}),
         ],
         fluid=True,
         style={"maxWidth": "1100px"},
@@ -938,9 +901,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-cleaning-alert", "children"),
         Output("dim-cleaning-alert", "color"),
         Output("dim-cleaning-alert", "is_open"),
-        Output("dim-cleaning-plots", "children", allow_duplicate=True),
-        Output("dim-cleaning-records", "data"),
-        Output("dim-cleaning-removed", "data"),
+        Output("dim-cleaning-plots", "children"),
         Input("upload-dim-cleaning", "contents"),
         State("upload-dim-cleaning", "filename"),
         State("dim-export-dir", "value"),
@@ -956,7 +917,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         try:
             preferred_path = _parse_export_directory(preferred_dir)
         except ValueError as exc:
-            return str(exc), "danger", True, [], None, {}
+            return str(exc), "danger", True
 
         export_path, _ = _resolve_export_target(
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
@@ -967,8 +928,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         )
 
         plots: list = []
-        records_payload = None
-        removed_payload: dict = {}
         if success and export_path.exists():
             try:
                 records, slice_cols = parse_dimensional_export(export_path)
@@ -981,100 +940,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     )
                 ]
             else:
-                records_payload = {
-                    "slice_cols": slice_cols,
-                    "records": {
-                        str(record_id): record_df.to_dict(orient="records")
-                        for record_id, record_df in records.items()
-                    },
-                }
-                plots = []
-        else:
-            records_payload = None
+                plots = _build_dimensional_plot_children(records, slice_cols)
 
-        if not success or not export_path.exists():
-            removed_payload = {}
-
-        return (
-            message,
-            ("success" if success else "danger"),
-            True,
-            plots,
-            records_payload,
-            removed_payload,
-        )
-
-    @app.callback(
-        Output("dim-cleaning-plots", "children", allow_duplicate=True),
-        Input("dim-cleaning-records", "data"),
-        Input("dim-cleaning-removed", "data"),
-    )
-    def _render_dimensional_plots(records_payload, removed_payload):
-        if records_payload is None:
-            raise PreventUpdate
-
-        slice_cols = records_payload.get("slice_cols") or []
-        records_data = records_payload.get("records") or {}
-
-        records = {}
-        for record_key, rows in records_data.items():
-            if not rows:
-                continue
-            df = pd.DataFrame(rows)
-            try:
-                record_id = int(record_key)
-            except (TypeError, ValueError):
-                continue
-            records[record_id] = df
-
-        removed_map: dict[int, set[str]] = {}
-        for record_key, values in (removed_payload or {}).items():
-            try:
-                record_id = int(record_key)
-            except (TypeError, ValueError):
-                continue
-            removed_map[record_id] = set(values or [])
-
-        return _build_dimensional_plot_children(records, slice_cols, removed_map)
-
-    @app.callback(
-        Output("dim-cleaning-removed", "data", allow_duplicate=True),
-        Input({"type": "dim-slice-toggle", "record": ALL, "slice": ALL}, "n_clicks"),
-        State("dim-cleaning-removed", "data"),
-        State("dim-cleaning-records", "data"),
-        prevent_initial_call=True,
-    )
-    def _toggle_slice_removal(_, removed_payload, records_payload):
-        if not records_payload:
-            raise PreventUpdate
-
-        ctx = dash.callback_context
-        triggered = getattr(ctx, "triggered_id", None)
-        if not triggered or not isinstance(triggered, dict):
-            raise PreventUpdate
-
-        record_key = str(triggered.get("record"))
-        slice_name = triggered.get("slice")
-        if not slice_name:
-            raise PreventUpdate
-
-        records_map = (records_payload or {}).get("records") or {}
-        if record_key not in records_map:
-            raise PreventUpdate
-
-        updated = dict(removed_payload or {})
-        current = set(updated.get(record_key, []))
-        if slice_name in current:
-            current.remove(slice_name)
-        else:
-            current.add(slice_name)
-
-        if current:
-            updated[record_key] = sorted(current)
-        else:
-            updated.pop(record_key, None)
-
-        return updated
+        return message, ("success" if success else "danger"), True, plots
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
