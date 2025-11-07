@@ -412,7 +412,7 @@ def _make_dimensional_record_fig(
     stacked = df[cols].stack(dropna=True)
     y_range: list[float] | None = None
     if not stacked.empty:
-        y_min = min(0.0, float(stacked.min()))
+        y_min = float(stacked.min())
         y_max = float(stacked.max())
         if y_max <= y_min:
             padding = max(abs(y_max), 1.0) * 0.05
