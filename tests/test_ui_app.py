@@ -35,7 +35,7 @@ def test_infer_original_dir_rejects_non_absolute_paths(filename: str):
     assert app._infer_original_dir(filename) is None
 
 
-def _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd):
+def _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds):
     real_exists = app.Path.exists
 
     def fake_exists(self):
@@ -51,8 +51,7 @@ def _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd):
         out_path = Path(cmd[cmd.index("-o") + 1])
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text("exported")
-        captured_cmd["cmd"] = cmd
-        captured_cmd["cwd"] = cwd
+        captured_cmds.append({"cmd": cmd, "cwd": cwd})
         return SimpleNamespace(stdout="done", stderr="")
 
     monkeypatch.setattr(app.subprocess, "run", fake_run)
@@ -74,18 +73,32 @@ def test_run_dimensional_export_uses_uvc_directory_by_default(monkeypatch, tmp_p
 
     exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
 
-    captured_cmd = {}
-    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+    captured_cmds = []
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
     success, message = app._run_dimensional_export(uvc_path)
 
     expected_output = uvc_path.with_suffix(".txt").resolve()
+    expected_gpdsr = expected_output.with_name(
+        f"{expected_output.stem}_gpdsr{expected_output.suffix}"
+    )
     assert success is True
     assert expected_output.exists()
-    assert message == f"Export complete. Output saved to: {expected_output}"
-    assert captured_cmd["cwd"] == str(uvc_path.parent)
-    assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
-    assert Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_gpdsr.exists()
+    assert (
+        message
+        == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
+    )
+    assert len(captured_cmds) == 2
+    for captured in captured_cmds:
+        assert captured["cwd"] == str(uvc_path.parent)
+        assert Path(captured["cmd"][captured["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_output == Path(
+        captured_cmds[0]["cmd"][captured_cmds[0]["cmd"].index("-o") + 1]
+    )
+    assert expected_gpdsr == Path(
+        captured_cmds[1]["cmd"][captured_cmds[1]["cmd"].index("-o") + 1]
+    )
 
 
 def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
@@ -97,19 +110,33 @@ def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
 
     exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
 
-    captured_cmd = {}
+    captured_cmds = []
 
-    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
     success, message = app._run_dimensional_export(uvc_path, original_dir)
 
     expected_output = (original_dir / uvc_path.name).with_suffix(".txt").resolve()
+    expected_gpdsr = expected_output.with_name(
+        f"{expected_output.stem}_gpdsr{expected_output.suffix}"
+    )
     assert success is True
     assert expected_output.exists()
-    assert message == f"Export complete. Output saved to: {expected_output}"
-    assert captured_cmd["cwd"] == str(uvc_path.parent)
-    assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
-    assert Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_gpdsr.exists()
+    assert (
+        message
+        == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
+    )
+    assert len(captured_cmds) == 2
+    for captured in captured_cmds:
+        assert captured["cwd"] == str(uvc_path.parent)
+        assert Path(captured["cmd"][captured["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_output == Path(
+        captured_cmds[0]["cmd"][captured_cmds[0]["cmd"].index("-o") + 1]
+    )
+    assert expected_gpdsr == Path(
+        captured_cmds[1]["cmd"][captured_cmds[1]["cmd"].index("-o") + 1]
+    )
 
 
 def test_run_dimensional_export_creates_missing_original_dir(monkeypatch, tmp_path):
@@ -120,19 +147,33 @@ def test_run_dimensional_export_creates_missing_original_dir(monkeypatch, tmp_pa
 
     exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
 
-    captured_cmd = {}
+    captured_cmds = []
 
-    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
     success, message = app._run_dimensional_export(uvc_path, original_dir)
 
     expected_output = (original_dir / uvc_path.name).with_suffix(".txt").resolve()
+    expected_gpdsr = expected_output.with_name(
+        f"{expected_output.stem}_gpdsr{expected_output.suffix}"
+    )
     assert success is True
     assert expected_output.exists()
-    assert message == f"Export complete. Output saved to: {expected_output}"
-    assert captured_cmd["cwd"] == str(uvc_path.parent)
-    assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
-    assert Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_gpdsr.exists()
+    assert (
+        message
+        == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
+    )
+    assert len(captured_cmds) == 2
+    for captured in captured_cmds:
+        assert captured["cwd"] == str(uvc_path.parent)
+        assert Path(captured["cmd"][captured["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_output == Path(
+        captured_cmds[0]["cmd"][captured_cmds[0]["cmd"].index("-o") + 1]
+    )
+    assert expected_gpdsr == Path(
+        captured_cmds[1]["cmd"][captured_cmds[1]["cmd"].index("-o") + 1]
+    )
 
 
 def test_run_dimensional_export_prefers_user_directory(monkeypatch, tmp_path):
@@ -143,18 +184,32 @@ def test_run_dimensional_export_prefers_user_directory(monkeypatch, tmp_path):
 
     exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
 
-    captured_cmd = {}
+    captured_cmds = []
 
-    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmd)
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
     success, message = app._run_dimensional_export(
         uvc_path, original_dir=None, preferred_dir=preferred_dir
     )
 
     expected_output = (preferred_dir / uvc_path.name).with_suffix(".txt").resolve()
+    expected_gpdsr = expected_output.with_name(
+        f"{expected_output.stem}_gpdsr{expected_output.suffix}"
+    )
     assert success is True
     assert expected_output.exists()
-    assert message == f"Export complete. Output saved to: {expected_output}"
-    assert captured_cmd["cwd"] == str(uvc_path.parent)
-    assert expected_output == Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-o") + 1])
-    assert Path(captured_cmd["cmd"][captured_cmd["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_gpdsr.exists()
+    assert (
+        message
+        == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
+    )
+    assert len(captured_cmds) == 2
+    for captured in captured_cmds:
+        assert captured["cwd"] == str(uvc_path.parent)
+        assert Path(captured["cmd"][captured["cmd"].index("-i") + 1]) == uvc_path.resolve()
+    assert expected_output == Path(
+        captured_cmds[0]["cmd"][captured_cmds[0]["cmd"].index("-o") + 1]
+    )
+    assert expected_gpdsr == Path(
+        captured_cmds[1]["cmd"][captured_cmds[1]["cmd"].index("-o") + 1]
+    )

@@ -237,49 +237,67 @@ def _run_dimensional_export(
         uvc_path, original_dir, preferred_dir
     )
 
+    gpdsr_output = output_file.with_name(
+        f"{output_file.stem}_gpdsr{output_file.suffix}"
+    )
+
     try:
         output_parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return False, f"Unable to prepare export directory '{output_parent}': {exc}"
 
     uvc_abs = uvc_path.resolve()
-    output_abs = output_file.resolve()
-
-    print(
-        f"Dimensional export debug - UVC path: {uvc_abs}, export path: {output_abs}"
-    )
-
-    cmd = [
-        str(exe_path),
-        "-export",
-        "dimensional",
-        "-i",
-        str(uvc_abs),
-        "-o",
-        str(output_abs),
+    exports = [
+        ("dimensional", output_file),
+        ("gpdsr", gpdsr_output),
     ]
 
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(uvc_path.parent),
-            capture_output=True,
-            text=True,
-            check=True,
+    messages: list[str] = []
+
+    for export_name, export_path in exports:
+        export_abs = export_path.resolve()
+
+        print(
+            "Dimensional export debug - UVC path: "
+            f"{uvc_abs}, export type: {export_name}, export path: {export_abs}"
         )
-    except FileNotFoundError:
-        return False, f"UvWin executable not found at '{exe_path}'."
-    except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.strip() if exc.stderr else ""
-        stdout = exc.stdout.strip() if exc.stdout else ""
-        details = stderr or stdout or str(exc)
-        return False, f"Dimensional export failed: {details}"
 
-    if output_file.exists():
-        return True, f"Export complete. Output saved to: {output_file}"
+        cmd = [
+            str(exe_path),
+            "-export",
+            export_name,
+            "-i",
+            str(uvc_abs),
+            "-o",
+            str(export_abs),
+        ]
 
-    message = result.stdout.strip() or "Dimensional export completed."
-    return True, message
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(uvc_path.parent),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except FileNotFoundError:
+            return False, f"UvWin executable not found at '{exe_path}'."
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.strip() if exc.stderr else ""
+            stdout = exc.stdout.strip() if exc.stdout else ""
+            details = stderr or stdout or str(exc)
+            return False, f"{export_name.capitalize()} export failed: {details}"
+
+        messages.append(result.stdout.strip())
+
+    if output_file.exists() and gpdsr_output.exists():
+        return (
+            True,
+            f"Export complete. Outputs saved to: {output_file} and {gpdsr_output}",
+        )
+
+    fallback = next((msg for msg in messages if msg), None)
+    return True, fallback or "Dimensional export completed."
 
 
 def _max_slot(areas: dict[int, float], tensile: TensileTest) -> int:
