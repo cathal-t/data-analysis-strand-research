@@ -31,7 +31,7 @@ import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Dash, dcc, html, dash_table
-from dash.dependencies import Input, Output, State
+from dash.dependencies import ALL, MATCH, Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -450,31 +450,26 @@ def _make_dimensional_record_fig(
     return fig
 
 
-def _make_slice_error_table(df: pd.DataFrame, slice_cols: list[str]) -> html.Div:
+def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dict[str, float]]:
     cols = [c for c in slice_cols if c in df.columns]
-    if not cols:
-        return html.Div()
-
-    min_vals: dict[str, float] = {}
-    max_vals: dict[str, float] = {}
+    stats: list[dict[str, float]] = []
     for col in cols:
-        series = pd.to_numeric(df[col], errors="coerce")
-        series = series.dropna()
+        series = pd.to_numeric(df[col], errors="coerce").dropna()
         if series.empty:
             continue
-        min_vals[col] = float(series.min())
-        max_vals[col] = float(series.max())
+        stats.append({"slice": col, "min": float(series.min()), "max": float(series.max())})
+    return stats
 
-    if not min_vals or not max_vals:
-        return html.Div()
 
-    def _average(values: dict[str, float]) -> float | None:
-        if not values:
-            return None
-        return sum(values.values()) / len(values)
+def _render_slice_error_table(
+    record_id: int, stats: list[dict[str, float]], removed: list[str] | None
+) -> dbc.Table:
+    removed = set(removed or [])
 
-    record_min = _average(min_vals)
-    record_max = _average(max_vals)
+    def _fmt(value: float | None, suffix: str = "") -> str:
+        if value is None or pd.isna(value):
+            return "–"
+        return f"{value:.2f}{suffix}"
 
     def _coeff(val: float | None, ref: float | None) -> float | None:
         if val is None or ref is None:
@@ -483,17 +478,20 @@ def _make_slice_error_table(df: pd.DataFrame, slice_cols: list[str]) -> html.Div
             return None
         return abs(val - ref) / abs(ref) * 100.0
 
-    def _fmt(value: float | None, suffix: str = "") -> str:
-        if value is None or pd.isna(value):
-            return "–"
-        return f"{value:.2f}{suffix}"
-
     def _style_pct(value: float | None) -> dict:
         if value is None:
             return {}
         if value > 10:
             return {"color": "#c53030", "fontWeight": "600"}
         return {}
+
+    included = [s for s in stats if s["slice"] not in removed]
+    if included:
+        record_min = sum(s["min"] for s in included) / len(included)
+        record_max = sum(s["max"] for s in included) / len(included)
+    else:
+        record_min = None
+        record_max = None
 
     header = html.Thead(
         html.Tr(
@@ -503,34 +501,68 @@ def _make_slice_error_table(df: pd.DataFrame, slice_cols: list[str]) -> html.Div
                 html.Th("Max"),
                 html.Th("Min coeff. error"),
                 html.Th("Max coeff. error"),
+                html.Th("Remove slice"),
             ]
         )
     )
 
     rows = []
-    for col in cols:
-        min_val = min_vals.get(col)
-        max_val = max_vals.get(col)
+    for s in stats:
+        slice_name = s["slice"]
+        min_val = s["min"]
+        max_val = s["max"]
         min_coeff = _coeff(min_val, record_min)
         max_coeff = _coeff(max_val, record_max)
+        is_removed = slice_name in removed
+        button_label = "Restore slice" if is_removed else "Remove slice"
+        button_color = "secondary" if is_removed else "danger"
+        button_outline = is_removed
+        row_style = {"opacity": 0.6} if is_removed else {}
         rows.append(
             html.Tr(
                 [
-                    html.Th(col, scope="row"),
+                    html.Th(slice_name, scope="row"),
                     html.Td(_fmt(min_val)),
                     html.Td(_fmt(max_val)),
                     html.Td(_fmt(min_coeff, suffix="%"), style=_style_pct(min_coeff)),
                     html.Td(_fmt(max_coeff, suffix="%"), style=_style_pct(max_coeff)),
-                ]
+                    html.Td(
+                        dbc.Button(
+                            button_label,
+                            id={
+                                "type": "dim-slice-toggle",
+                                "record": record_id,
+                                "slice": slice_name,
+                            },
+                            color=button_color,
+                            outline=button_outline,
+                            size="sm",
+                        )
+                    ),
+                ],
+                style=row_style,
             )
         )
 
     body = html.Tbody(rows)
 
+    return dbc.Table([header, body], bordered=True, size="sm", className="mb-0")
+
+
+def _make_slice_error_table(record_id: int, df: pd.DataFrame, slice_cols: list[str]) -> html.Div:
+    stats = _compute_slice_extremes(df, slice_cols)
+    if not stats:
+        return html.Div()
+
     return html.Div(
         [
+            dcc.Store(id={"type": "dim-slice-data", "record": record_id}, data=stats),
+            dcc.Store(id={"type": "dim-slice-store", "record": record_id}, data=[]),
             html.H6("Slice extremes", className="mt-4"),
-            dbc.Table([header, body], bordered=True, size="sm", className="mb-0"),
+            html.Div(
+                _render_slice_error_table(record_id, stats, []),
+                id={"type": "dim-slice-table", "record": record_id},
+            ),
         ]
     )
 
@@ -553,7 +585,7 @@ def _build_dimensional_plot_children(
         if df.empty:
             continue
         fig = _make_dimensional_record_fig(record_id, df, slice_cols)
-        error_table = _make_slice_error_table(df, slice_cols)
+        error_table = _make_slice_error_table(record_id, df, slice_cols)
         children.append(
             dbc.Card(
                 dbc.CardBody(
@@ -943,6 +975,36 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 plots = _build_dimensional_plot_children(records, slice_cols)
 
         return message, ("success" if success else "danger"), True, plots
+
+    @app.callback(
+        Output({"type": "dim-slice-store", "record": MATCH}, "data"),
+        Output({"type": "dim-slice-table", "record": MATCH}, "children"),
+        Input({"type": "dim-slice-toggle", "record": MATCH, "slice": ALL}, "n_clicks"),
+        State({"type": "dim-slice-store", "record": MATCH}, "data"),
+        State({"type": "dim-slice-data", "record": MATCH}, "data"),
+        prevent_initial_call=True,
+    )
+    def _toggle_dim_slice(_, removed, stats):
+        ctx = dash.callback_context
+        triggered = ctx.triggered_id if ctx.triggered_id else None
+        if not triggered:
+            raise PreventUpdate
+        if not stats:
+            raise PreventUpdate
+
+        slice_name = triggered.get("slice")
+        record_id = triggered.get("record")
+        if slice_name is None or record_id is None:
+            raise PreventUpdate
+
+        removed_list = list(removed or [])
+        if slice_name in removed_list:
+            removed_list = [s for s in removed_list if s != slice_name]
+        else:
+            removed_list.append(slice_name)
+
+        table = _render_slice_error_table(record_id, stats, removed_list)
+        return removed_list, table
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
