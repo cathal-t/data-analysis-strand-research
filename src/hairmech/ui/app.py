@@ -33,8 +33,11 @@ import pandas as pd
 from dash import Dash, dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from ..analysis import build_summary, build_stats, long_to_wide
+from ..dimensioncleaning import parse_dimensional_export
 from ..dimensional import DimensionalData
 from ..io.config import Condition, ConfigError, load_config
 from ..plots import make_overlay, make_violin_grid
@@ -195,6 +198,27 @@ def _store_uvc_file(raw: bytes, filename: str) -> tuple[Path, Path | None]:
     return target, _infer_original_dir(filename)
 
 
+def _resolve_export_target(
+    uvc_path: Path,
+    original_dir: Path | None,
+    preferred_dir: Path | None,
+) -> tuple[Path, Path]:
+    candidates = [preferred_dir, original_dir]
+    output_parent = None
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if _looks_like_absolute(str(candidate)):
+            output_parent = candidate
+            break
+
+    if output_parent is None:
+        output_parent = uvc_path.parent
+
+    output_file = (output_parent / uvc_path.name).with_suffix(".txt")
+    return output_file, output_parent
+
+
 def _run_dimensional_export(
     uvc_path: Path,
     original_dir: Path | None = None,
@@ -209,23 +233,14 @@ def _run_dimensional_export(
     if not exe_path.exists():
         return False, f"UvWin executable not found at '{exe_path}'."
 
-    candidates = [preferred_dir, original_dir]
-    output_parent = None
-    for candidate in candidates:
-        if candidate is None:
-            continue
-        if _looks_like_absolute(str(candidate)):
-            output_parent = candidate
-            break
-
-    if output_parent is None:
-        output_parent = uvc_path.parent
+    output_file, output_parent = _resolve_export_target(
+        uvc_path, original_dir, preferred_dir
+    )
 
     try:
         output_parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return False, f"Unable to prepare export directory '{output_parent}': {exc}"
-    output_file = (output_parent / uvc_path.name).with_suffix(".txt")
 
     uvc_abs = uvc_path.resolve()
     output_abs = output_file.resolve()
@@ -380,6 +395,82 @@ def _to_excel_bytes(sheets: dict[str, pd.DataFrame]) -> bytes:
 
     buf.seek(0)
     return buf.getvalue()
+
+
+def _make_dimensional_record_fig(
+    record_id: int, df: pd.DataFrame, slice_cols: list[str]
+) -> go.Figure:
+    cols = [c for c in slice_cols if c in df.columns]
+    if not cols:
+        fig = go.Figure()
+        fig.update_layout(title=f"Record {record_id}")
+        return fig
+
+    fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
+    x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
+
+    for idx, col in enumerate(cols, start=1):
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=df[col],
+                mode="lines+markers",
+                name=col,
+                showlegend=False,
+            ),
+            row=1,
+            col=idx,
+        )
+        fig.update_xaxes(title_text="N", row=1, col=idx)
+        fig.update_yaxes(title_text="Value", row=1, col=idx)
+
+    fig.update_layout(
+        title=f"Record {record_id}",
+        height=320,
+        margin=dict(t=80, l=40, r=20, b=40),
+    )
+    return fig
+
+
+def _build_dimensional_plot_children(
+    records: dict[int, pd.DataFrame], slice_cols: list[str]
+) -> list:
+    if not records:
+        return [
+            dbc.Alert(
+                "Export succeeded but no record data was found in the file.",
+                color="warning",
+                className="mt-3",
+            )
+        ]
+
+    children = []
+    for record_id in sorted(records):
+        df = records[record_id]
+        if df.empty:
+            continue
+        fig = _make_dimensional_record_fig(record_id, df, slice_cols)
+        children.append(
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        dcc.Graph(figure=fig, config={"displaylogo": False}),
+                    ]
+                ),
+                className="mb-4 shadow-sm",
+            )
+        )
+
+    if not children:
+        return [
+            dbc.Alert(
+                "Export succeeded but no plottable records were detected.",
+                color="warning",
+                className="mt-3",
+            )
+        ]
+
+    return children
 
 
 # ────────────── slot rebalance ──────────────
@@ -585,6 +676,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             className="mt-3",
                         ),
                         dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
+                        html.Div(id="dim-cleaning-plots", className="mt-4"),
                     ]
                 ),
                 className="shadow-sm",
@@ -704,6 +796,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-cleaning-alert", "children"),
         Output("dim-cleaning-alert", "color"),
         Output("dim-cleaning-alert", "is_open"),
+        Output("dim-cleaning-plots", "children"),
         Input("upload-dim-cleaning", "contents"),
         State("upload-dim-cleaning", "filename"),
         State("dim-export-dir", "value"),
@@ -721,11 +814,30 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         except ValueError as exc:
             return str(exc), "danger", True
 
+        export_path, _ = _resolve_export_target(
+            uvc_path, original_dir=original_dir, preferred_dir=preferred_path
+        )
+
         success, message = _run_dimensional_export(
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
         )
 
-        return message, ("success" if success else "danger"), True
+        plots: list = []
+        if success and export_path.exists():
+            try:
+                records, slice_cols = parse_dimensional_export(export_path)
+            except Exception as exc:
+                plots = [
+                    dbc.Alert(
+                        f"Export succeeded but the output could not be parsed: {exc}",
+                        color="danger",
+                        className="mt-3",
+                    )
+                ]
+            else:
+                plots = _build_dimensional_plot_children(records, slice_cols)
+
+        return message, ("success" if success else "danger"), True, plots
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
