@@ -486,12 +486,23 @@ def _render_slice_error_table(
         return {}
 
     included = [s for s in stats if s["slice"] not in removed]
-    if included:
-        record_min = sum(s["min"] for s in included) / len(included)
-        record_max = sum(s["max"] for s in included) / len(included)
-    else:
-        record_min = None
-        record_max = None
+
+    def _avg_without_current(values: list[tuple[str, float]], current: str) -> float | None:
+        peers = [val for name, val in values if name != current]
+        if not peers:
+            return None
+        return sum(peers) / len(peers)
+
+    included_mins = [
+        (s["slice"], s["min"])
+        for s in included
+        if s.get("min") is not None and not pd.isna(s["min"])
+    ]
+    included_maxs = [
+        (s["slice"], s["max"])
+        for s in included
+        if s.get("max") is not None and not pd.isna(s["max"])
+    ]
 
     header = html.Thead(
         html.Tr(
@@ -511,8 +522,10 @@ def _render_slice_error_table(
         slice_name = s["slice"]
         min_val = s["min"]
         max_val = s["max"]
-        min_coeff = _coeff(min_val, record_min)
-        max_coeff = _coeff(max_val, record_max)
+        min_ref = _avg_without_current(included_mins, slice_name)
+        max_ref = _avg_without_current(included_maxs, slice_name)
+        min_coeff = _coeff(min_val, min_ref)
+        max_coeff = _coeff(max_val, max_ref)
         is_removed = slice_name in removed
         button_label = "Restore slice" if is_removed else "Remove slice"
         button_color = "secondary" if is_removed else "danger"
