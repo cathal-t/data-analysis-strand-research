@@ -468,8 +468,13 @@ def _make_slice_error_table(df: pd.DataFrame, slice_cols: list[str]) -> html.Div
     if not min_vals or not max_vals:
         return html.Div()
 
-    record_min = min(min_vals.values())
-    record_max = max(max_vals.values())
+    def _average(values: dict[str, float]) -> float | None:
+        if not values:
+            return None
+        return sum(values.values()) / len(values)
+
+    record_min = _average(min_vals)
+    record_max = _average(max_vals)
 
     def _coeff(val: float | None, ref: float | None) -> float | None:
         if val is None or ref is None:
