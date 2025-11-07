@@ -406,7 +406,21 @@ def _make_dimensional_record_fig(
         fig.update_layout(title=f"Record {record_id}")
         return fig
 
-    fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
+    numeric_values = df[cols].apply(pd.to_numeric, errors="coerce")
+    max_val = numeric_values.max().max()
+    y_range: list[float] | None = None
+    if pd.notna(max_val):
+        max_val = float(max_val)
+        padding = 0.05 * max_val if max_val else 1.0
+        y_range = [0.0, max_val + padding]
+
+    fig = make_subplots(
+        rows=1,
+        cols=len(cols),
+        subplot_titles=cols,
+        shared_yaxes=True,
+        horizontal_spacing=0.04,
+    )
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
     for idx, col in enumerate(cols, start=1):
@@ -422,11 +436,16 @@ def _make_dimensional_record_fig(
             col=idx,
         )
         fig.update_xaxes(title_text="N", row=1, col=idx)
-        fig.update_yaxes(title_text="Value", row=1, col=idx)
+        yaxis_kwargs = dict(title_text="Value", row=1, col=idx)
+        if y_range is not None:
+            yaxis_kwargs["range"] = y_range
+        fig.update_yaxes(**yaxis_kwargs)
 
     fig.update_layout(
         title=f"Record {record_id}",
         height=320,
+        width=max(400, 320 * len(cols)),
+        autosize=False,
         margin=dict(t=80, l=40, r=20, b=40),
     )
     return fig
@@ -454,7 +473,11 @@ def _build_dimensional_plot_children(
             dbc.Card(
                 dbc.CardBody(
                     [
-                        dcc.Graph(figure=fig, config={"displaylogo": False}),
+                        dcc.Graph(
+                            figure=fig,
+                            config={"displaylogo": False, "responsive": True},
+                            style={"height": "360px", "width": "100%"},
+                        ),
                     ]
                 ),
                 className="mb-4 shadow-sm",
