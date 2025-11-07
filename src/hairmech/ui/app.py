@@ -409,6 +409,21 @@ def _make_dimensional_record_fig(
     fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
+    stacked = df[cols].stack(dropna=True)
+    y_range: list[float] | None = None
+    if not stacked.empty:
+        y_min = min(0.0, float(stacked.min()))
+        y_max = float(stacked.max())
+        if y_max <= y_min:
+            padding = max(abs(y_max), 1.0) * 0.05
+            y_min -= padding
+            y_max += padding
+        else:
+            padding = (y_max - y_min) * 0.05
+            y_min -= padding
+            y_max += padding
+        y_range = [y_min, y_max]
+
     for idx, col in enumerate(cols, start=1):
         fig.add_trace(
             go.Scatter(
@@ -422,7 +437,10 @@ def _make_dimensional_record_fig(
             col=idx,
         )
         fig.update_xaxes(title_text="N", row=1, col=idx)
-        fig.update_yaxes(title_text="Value", row=1, col=idx)
+        if y_range:
+            fig.update_yaxes(title_text="Value", row=1, col=idx, range=y_range)
+        else:
+            fig.update_yaxes(title_text="Value", row=1, col=idx)
 
     fig.update_layout(
         title=f"Record {record_id}",
@@ -683,7 +701,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             ),
         ],
         fluid=True,
-        style={"maxWidth": "700px"},
+        style={"maxWidth": "1100px"},
     )
 
     landing_intro = dbc.Card(
