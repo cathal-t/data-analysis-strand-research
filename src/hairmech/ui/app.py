@@ -825,8 +825,25 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             ],
                             className="mt-3",
                         ),
+                        dcc.Store(id="dim-export-directory"),
                         dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
                         html.Div(id="dim-cleaning-plots", className="mt-4"),
+                        html.Div(
+                            [
+                                dbc.Button(
+                                    "Generate List of Remove Slices",
+                                    id="dim-generate-remove-list",
+                                    color="primary",
+                                    size="lg",
+                                    className="w-100",
+                                ),
+                                html.Div(id="dim-removed-summary-message", className="mt-3"),
+                                html.Div(id="dim-removed-summary-table", className="mt-3"),
+                            ],
+                            id="dim-removed-summary-container",
+                            className="mt-4",
+                            style={"display": "none"},
+                        ),
                     ]
                 ),
                 className="shadow-sm",
@@ -947,6 +964,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-cleaning-alert", "color"),
         Output("dim-cleaning-alert", "is_open"),
         Output("dim-cleaning-plots", "children"),
+        Output("dim-export-directory", "data"),
+        Output("dim-removed-summary-container", "style"),
         Input("upload-dim-cleaning", "contents"),
         State("upload-dim-cleaning", "filename"),
         State("dim-export-dir", "value"),
@@ -962,7 +981,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         try:
             preferred_path = _parse_export_directory(preferred_dir)
         except ValueError as exc:
-            return str(exc), "danger", True
+            return str(exc), "danger", True, [], None, {"display": "none"}
 
         export_path, _ = _resolve_export_target(
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
@@ -973,6 +992,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         )
 
         plots: list = []
+        records: dict[int, pd.DataFrame] | None = None
+        slice_cols: list[str] = []
+        export_dir_data: str | None = None
+        summary_style = {"display": "none"}
+
+        if export_path.exists():
+            export_dir_data = str(export_path.parent)
+
         if success and export_path.exists():
             try:
                 records, slice_cols = parse_dimensional_export(export_path)
@@ -986,8 +1013,20 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 ]
             else:
                 plots = _build_dimensional_plot_children(records, slice_cols)
+                if records:
+                    summary_style = {"display": "block"}
 
-        return message, ("success" if success else "danger"), True, plots
+        if not success:
+            export_dir_data = None
+
+        return (
+            message,
+            ("success" if success else "danger"),
+            True,
+            plots,
+            export_dir_data,
+            summary_style,
+        )
 
     @app.callback(
         Output({"type": "dim-slice-store", "record": MATCH}, "data"),
@@ -1018,6 +1057,89 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         table = _render_slice_error_table(record_id, stats, removed_list)
         return removed_list, table
+
+    @app.callback(
+        Output("dim-removed-summary-message", "children"),
+        Output("dim-removed-summary-table", "children"),
+        Input("dim-generate-remove-list", "n_clicks"),
+        State({"type": "dim-slice-store", "record": ALL}, "data"),
+        State({"type": "dim-slice-store", "record": ALL}, "id"),
+        State("dim-export-directory", "data"),
+        prevent_initial_call=True,
+    )
+    def _generate_removed_slice_summary(n_clicks, removed_lists, store_ids, export_directory):
+        if not n_clicks:
+            raise PreventUpdate
+
+        if not store_ids:
+            message = dbc.Alert(
+                "No dimensional records are currently available.",
+                color="warning",
+                className="mb-0",
+            )
+            return message, None
+
+        summary_rows = []
+        removed_lists = removed_lists or [None] * len(store_ids)
+        for store_id, removed in zip(store_ids, removed_lists):
+            record_id = store_id.get("record") if isinstance(store_id, dict) else None
+            if record_id is None:
+                continue
+            try:
+                record_int = int(record_id)
+            except (TypeError, ValueError):
+                continue
+
+            removed_list = [str(s) for s in (removed or [])]
+            removed_display = ", ".join(removed_list) if removed_list else "None"
+            summary_rows.append({"Record": record_int, "Removed slice(s)": removed_display})
+
+        if not summary_rows:
+            message = dbc.Alert(
+                "No slice removals have been selected.",
+                color="info",
+                className="mb-0",
+            )
+            return message, None
+
+        summary_df = pd.DataFrame(summary_rows).sort_values("Record").reset_index(drop=True)
+
+        table_header = html.Thead(
+            html.Tr([html.Th("Record"), html.Th("Removed slice(s)")])
+        )
+        table_body = html.Tbody(
+            [
+                html.Tr([html.Td(row["Record"]), html.Td(row["Removed slice(s)"])])
+                for row in summary_df.to_dict("records")
+            ]
+        )
+        table = dbc.Table([table_header, table_body], bordered=True, hover=True, className="mb-0")
+
+        if not export_directory:
+            csv_message = dbc.Alert(
+                "Summary generated, but no export directory is available for saving the CSV.",
+                color="warning",
+                className="mb-0",
+            )
+        else:
+            csv_path = Path(export_directory) / "removed_slices_summary.csv"
+            try:
+                csv_path.parent.mkdir(parents=True, exist_ok=True)
+                summary_df.to_csv(csv_path, index=False)
+            except Exception as exc:  # pragma: no cover - filesystem errors are user specific
+                csv_message = dbc.Alert(
+                    f"Unable to save removed slices summary to '{csv_path}': {exc}",
+                    color="danger",
+                    className="mb-0",
+                )
+            else:
+                csv_message = dbc.Alert(
+                    f"Removed slices summary saved to '{csv_path}'.",
+                    color="success",
+                    className="mb-0",
+                )
+
+        return csv_message, dbc.Card(dbc.CardBody(table), className="shadow-sm")
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
