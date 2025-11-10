@@ -108,6 +108,114 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
         return TensileTest(Path(tmp.name))
 
 
+def _parse_gpdsr_mapping(gpdsr_path: Path) -> tuple[pd.DataFrame, list[int]]:
+    """Parse a *_gpdsr.txt file into a Record→Slot mapping.
+
+    Returns a tuple of (DataFrame, deduped_slots). The DataFrame contains at
+    least ``Record`` and ``Slot`` integer columns sorted by Record ascending.
+    ``deduped_slots`` lists any slots that required de-duplication.
+    """
+
+    text = gpdsr_path.read_text(encoding="utf-8", errors="ignore")
+    lines = text.splitlines()
+
+    idx = 0
+    # Drop leading metadata lines.
+    while idx < len(lines) and (
+        lines[idx].startswith("Summary Data Ver:")
+        or lines[idx].startswith("Source File:")
+    ):
+        idx += 1
+
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+
+    if idx >= len(lines):
+        raise ValueError("GPDSR file is missing a header row")
+
+    headers = [h.strip() for h in lines[idx].split("\t")]
+    idx += 1
+
+    rows: list[dict[str, object]] = []
+    for line in lines[idx:]:
+        if not line.strip():
+            continue
+
+        fields = line.split("\t")
+        if len(fields) < len(headers):
+            fields += [""] * (len(headers) - len(fields))
+        elif len(fields) > len(headers):
+            fields = fields[: len(headers)]
+
+        row: dict[str, object] = {}
+        for header, value in zip(headers, fields):
+            row[header] = value.strip()
+
+        record_value = row.get("Record")
+        if record_value in (None, ""):
+            continue
+
+        try:
+            row["Record"] = int(float(str(record_value)))
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Invalid Record value '{record_value}'") from exc
+
+        sample_value = row.get("Sample")
+        if sample_value not in (None, ""):
+            try:
+                row["Sample"] = int(float(str(sample_value)))
+            except (TypeError, ValueError):
+                pass
+
+        description = str(row.get("Description", ""))
+        slot_match = re.search(r"\bSlot\s+(\d+)\b", description)
+        if not slot_match:
+            raise ValueError(
+                f"Unable to determine Slot from description '{description}'"
+            )
+        row["Slot"] = int(slot_match.group(1))
+
+        cycle_match = re.search(r"Cycle:\s*(\d+)", description)
+        if cycle_match:
+            row["Cycle"] = int(cycle_match.group(1))
+
+        for header, value in list(row.items()):
+            if header in {"Record", "Sample", "Slot", "Cycle", "Description"}:
+                continue
+            if isinstance(value, str):
+                if value == "":
+                    row[header] = pd.NA
+                    continue
+                try:
+                    row[header] = float(value)
+                except ValueError:
+                    pass
+
+        rows.append(row)
+
+    if not rows:
+        raise ValueError("GPDSR file contained no data rows")
+
+    df = pd.DataFrame(rows)
+    if df["Record"].duplicated().any():
+        dupes = sorted(df.loc[df["Record"].duplicated(), "Record"].unique())
+        raise ValueError(f"Duplicate Record values in GPDSR file: {dupes}")
+
+    deduped_slots: list[int] = []
+    if df["Slot"].duplicated().any():
+        deduped_slots = sorted(df.loc[df["Slot"].duplicated(), "Slot"].unique())
+        df = df.sort_values("Record").drop_duplicates("Slot", keep="last")
+
+    if df["Slot"].duplicated().any():
+        dupes = sorted(df.loc[df["Slot"].duplicated(), "Slot"].unique())
+        raise ValueError(
+            f"Duplicate Slot values remain after de-duplication: {dupes}"
+        )
+
+    df = df.sort_values("Record").reset_index(drop=True)
+    return df, deduped_slots
+
+
 def _looks_like_absolute(path_str: str) -> bool:
     """Return True if the given path string appears to be absolute on any platform."""
 
@@ -1012,11 +1120,18 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         plots: list = []
         records: dict[int, pd.DataFrame] | None = None
         slice_cols: list[str] = []
-        export_dir_data: str | None = None
+        gpdsr_path = export_path.with_name(
+            f"{export_path.stem}_gpdsr{export_path.suffix}"
+        )
+        export_dir_data: dict[str, str] | None = None
         summary_style = {"display": "none"}
 
         if export_path.exists():
-            export_dir_data = str(export_path.parent)
+            export_dir_data = {
+                "directory": str(export_path.parent),
+                "output": str(export_path),
+                "gpdsr": str(gpdsr_path),
+            }
 
         if success and export_path.exists():
             try:
@@ -1122,25 +1237,126 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         summary_df = pd.DataFrame(summary_rows).sort_values("Record").reset_index(drop=True)
 
+        export_info = export_directory
+        export_dir_path: Path | None = None
+        output_path: Path | None = None
+        gpdsr_path: Path | None = None
+
+        if isinstance(export_info, dict):
+            dir_value = export_info.get("directory")
+            if dir_value:
+                export_dir_path = Path(dir_value)
+            output_value = export_info.get("output")
+            if output_value:
+                output_path = Path(output_value)
+            gpdsr_value = export_info.get("gpdsr")
+            if gpdsr_value:
+                gpdsr_path = Path(gpdsr_value)
+            elif output_path is not None:
+                gpdsr_path = output_path.with_name(
+                    f"{output_path.stem}_gpdsr{output_path.suffix}"
+                )
+        elif isinstance(export_info, str):
+            export_dir_path = Path(export_info)
+
+        if export_dir_path is None and output_path is not None:
+            export_dir_path = output_path.parent
+
+        if gpdsr_path is None and export_dir_path is not None:
+            candidates = sorted(export_dir_path.glob("*_gpdsr*.txt"))
+            expected_name = None
+            if output_path is not None:
+                expected_name = f"{output_path.stem}_gpdsr{output_path.suffix}"
+            if expected_name:
+                for candidate in candidates:
+                    if candidate.name == expected_name:
+                        gpdsr_path = candidate
+                        break
+            if gpdsr_path is None and len(candidates) == 1:
+                gpdsr_path = candidates[0]
+
+        gpdsr_alerts: list = []
+        slot_lookup: dict[int, int] = {}
+
+        if gpdsr_path is None:
+            if export_dir_path is not None:
+                gpdsr_alerts.append(
+                    dbc.Alert(
+                        "Slot numbers could not be determined because the GPDSR file was not located.",
+                        color="warning",
+                        className="mb-2",
+                    )
+                )
+        elif not gpdsr_path.exists():
+            gpdsr_alerts.append(
+                dbc.Alert(
+                    f"GPDSR file '{gpdsr_path}' was not found. Slot numbers will be omitted.",
+                    color="warning",
+                    className="mb-2",
+                )
+            )
+        else:
+            try:
+                gpdsr_df, deduped_slots = _parse_gpdsr_mapping(gpdsr_path)
+            except Exception as exc:
+                gpdsr_alerts.append(
+                    dbc.Alert(
+                        f"Unable to parse GPDSR file '{gpdsr_path}': {exc}",
+                        color="warning",
+                        className="mb-2",
+                    )
+                )
+            else:
+                slot_lookup = dict(zip(gpdsr_df["Record"], gpdsr_df["Slot"]))
+                if deduped_slots:
+                    slot_list = ", ".join(str(slot) for slot in deduped_slots)
+                    gpdsr_alerts.append(
+                        dbc.Alert(
+                            "Duplicate slot entries detected in the GPDSR file. "
+                            f"Keeping the highest Record for slots: {slot_list}.",
+                            color="info",
+                            className="mb-2",
+                        )
+                    )
+
+        summary_df["Slot"] = summary_df["Record"].map(slot_lookup)
+        try:
+            summary_df["Slot"] = summary_df["Slot"].astype("Int64")
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            pass
+
+        summary_df = summary_df[["Record", "Slot", "Removed slice(s)"]]
+
         table_header = html.Thead(
-            html.Tr([html.Th("Record"), html.Th("Removed slice(s)")])
+            html.Tr([html.Th("Record"), html.Th("Slot"), html.Th("Removed slice(s)")])
         )
-        table_body = html.Tbody(
-            [
-                html.Tr([html.Td(row["Record"]), html.Td(row["Removed slice(s)"])])
-                for row in summary_df.to_dict("records")
-            ]
-        )
+        table_rows = []
+        for row in summary_df.to_dict("records"):
+            slot_value = row.get("Slot")
+            slot_display = "Unknown" if pd.isna(slot_value) else str(int(slot_value))
+            table_rows.append(
+                html.Tr(
+                    [
+                        html.Td(row["Record"]),
+                        html.Td(slot_display),
+                        html.Td(row["Removed slice(s)"]),
+                    ]
+                )
+            )
+        table_body = html.Tbody(table_rows)
         table = dbc.Table([table_header, table_body], bordered=True, hover=True, className="mb-0")
 
-        if not export_directory:
+        alerts: list = []
+        alerts.extend(gpdsr_alerts)
+
+        if export_dir_path is None:
             csv_message = dbc.Alert(
                 "Summary generated, but no export directory is available for saving the CSV.",
                 color="warning",
                 className="mb-0",
             )
         else:
-            csv_path = Path(export_directory) / "removed_slices_summary.csv"
+            csv_path = export_dir_path / "removed_slices_summary.csv"
             try:
                 csv_path.parent.mkdir(parents=True, exist_ok=True)
                 summary_df.to_csv(csv_path, index=False)
@@ -1157,7 +1373,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     className="mb-0",
                 )
 
-        return csv_message, dbc.Card(dbc.CardBody(table), className="shadow-sm")
+        alerts.append(csv_message)
+
+        return html.Div(alerts), dbc.Card(dbc.CardBody(table), className="shadow-sm")
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
