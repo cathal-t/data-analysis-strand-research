@@ -1779,7 +1779,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             dcc.Graph(
                 figure=fig,
                 style={"height": "750px"},
-                className="mb-4",
+                className="mb-5",
             )
         ]
         alerts = _render_removed_feedback(feedback)
