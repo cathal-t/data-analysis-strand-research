@@ -67,6 +67,46 @@ def test_parse_export_directory_rejects_relative_path():
         app._parse_export_directory("relative/path")
 
 
+def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
+    gpdsr_path = tmp_path / "example_gpdsr.txt"
+    gpdsr_path.write_text(
+        "\n".join(
+            [
+                "Summary Data Ver: 1.0",
+                "Source File: demo",
+                "Record\tSample\tDescription",
+                "1\t1\tSlot 5 Cycle: 1",
+                "4\t2\tSlot 5 Cycle: 2",
+                "5\t3\tSlot 7",
+            ]
+        )
+    )
+
+    mapping, deduped = app._parse_gpdsr_mapping(gpdsr_path)
+
+    assert list(mapping["Record"]) == [4, 5]
+    assert list(mapping["Slot"]) == [5, 7]
+    assert deduped == [5]
+
+
+def test_parse_gpdsr_mapping_errors_on_duplicate_records(tmp_path):
+    gpdsr_path = tmp_path / "bad_gpdsr.txt"
+    gpdsr_path.write_text(
+        "\n".join(
+            [
+                "Summary Data Ver: 1.0",
+                "Source File: demo",
+                "Record\tSample\tDescription",
+                "1\t1\tSlot 5 Cycle: 1",
+                "1\t2\tSlot 6 Cycle: 1",
+            ]
+        )
+    )
+
+    with pytest.raises(ValueError, match="Duplicate Record values"):
+        app._parse_gpdsr_mapping(gpdsr_path)
+
+
 def test_run_dimensional_export_uses_uvc_directory_by_default(monkeypatch, tmp_path):
     uvc_path = tmp_path / "input.uvc"
     uvc_path.write_text("dummy")
