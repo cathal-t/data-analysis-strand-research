@@ -3,7 +3,7 @@ from __future__ import annotations  # optional but nice for type hints
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Mapping, MutableMapping, Sequence, Set
 
 import numpy as np
 import pandas as pd
@@ -28,7 +28,11 @@ class DimensionalData:
     _DESC_RE  = re.compile(r"^slot\s+(\d+)\b", re.I)     # “Slot 17 : …”
     _NUM_RE   = re.compile(r"^\d+(\.\d+)?$")             # basic numeric test
 
-    def __init__(self, path: Path):
+    def __init__(
+        self,
+        path: Path,
+        removed_slices: Mapping[int, Sequence[int]] | None = None,
+    ):
         lines = path.read_text().splitlines()
 
         # 1 ── locate the first header line
@@ -53,6 +57,22 @@ class DimensionalData:
 
         # 3 ── parse every data row
         slot_vals: Dict[int, List[float]] = {}
+        all_slices: Dict[int, Set[int]] = {}
+        removed_lookup: Dict[int, Set[int]] = {
+            int(slot): {int(s) for s in slices}
+            for slot, slices in (removed_slices or {}).items()
+        }
+        removed_applied: MutableMapping[int, Set[int]] = {
+            slot: set() for slot in removed_lookup
+        }
+
+        try:
+            slice_idx = header.index("Slice No.")
+        except ValueError:
+            slice_idx = next(
+                (i for i, col in enumerate(header) if col.strip().lower() == "slice no."),
+                None,
+            )
 
         for row in lines[hdr_idx + 1:]:
             if not row.strip() or row.startswith("Record"):
@@ -72,15 +92,59 @@ class DimensionalData:
                 continue
             area_val = float(area_str)
 
-            slot_vals.setdefault(slot, []).append(area_val)
+            slice_number: int | None = None
+            if slice_idx is not None and slice_idx < len(parts):
+                slice_raw = parts[slice_idx].strip()
+                if slice_raw.isdigit():
+                    slice_number = int(slice_raw)
+
+            all_slices.setdefault(slot, set())
+            if slice_number is not None:
+                all_slices[slot].add(slice_number)
+
+            slot_vals.setdefault(slot, [])
+            if (
+                slice_number is not None
+                and slot in removed_lookup
+                and slice_number in removed_lookup[slot]
+            ):
+                removed_applied.setdefault(slot, set()).add(slice_number)
+                continue
+
+            slot_vals[slot].append(area_val)
 
         if not slot_vals:
             raise ValueError("No numeric area entries parsed")
 
         # 4 ── build the map + debug print
         self.map: Dict[int, float] = {
-            s: float(np.mean(vals)) for s, vals in slot_vals.items()
+            s: float(np.mean(vals))
+            for s, vals in slot_vals.items()
+            if vals
         }
+
+        requested_slots = set(removed_lookup)
+        present_slots = set(all_slices)
+        self.removed_applied: Dict[int, List[int]] = {
+            slot: sorted(vals)
+            for slot, vals in removed_applied.items()
+            if vals
+        }
+        self.removed_missing_slices: Dict[int, List[int]] = {}
+        for slot, requested in removed_lookup.items():
+            applied = removed_applied.get(slot, set())
+            missing = sorted(requested - applied)
+            if missing:
+                self.removed_missing_slices[slot] = missing
+
+        self.removed_missing_slots: List[int] = sorted(
+            slot for slot in requested_slots if slot not in present_slots
+        )
+        self.removed_empty_slots: List[int] = sorted(
+            slot
+            for slot, vals in slot_vals.items()
+            if not vals and slot in requested_slots
+        )
 
         df_debug = (
             pd.Series(self.map, name="Mean_Area_µm²")
