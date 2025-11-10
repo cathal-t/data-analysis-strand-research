@@ -372,6 +372,11 @@ def _parse_gpdsr_mapping(gpdsr_path: Path) -> tuple[pd.DataFrame, list[int]]:
         description = str(row.get("Description", ""))
         slot_match = re.search(r"\bSlot\s+(\d+)\b", description)
         if not slot_match:
+            if description.strip().lower() == "tag":
+                # Some files include metadata rows describing tagged slices. These do not
+                # correspond to a physical slot and should be ignored when building the
+                # Record→Slot mapping.
+                continue
             raise ValueError(
                 f"Unable to determine Slot from description '{description}'"
             )

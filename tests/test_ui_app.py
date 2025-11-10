@@ -89,6 +89,27 @@ def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
     assert deduped == [5]
 
 
+def test_parse_gpdsr_mapping_skips_tagged_rows(tmp_path):
+    gpdsr_path = tmp_path / "tagged_gpdsr.txt"
+    gpdsr_path.write_text(
+        "\n".join(
+            [
+                "Summary Data Ver: 1.0",
+                "Source File: demo",
+                "Record\tSample\tDescription",
+                "1\t1\tTag",
+                "2\t2\tSlot 6",
+            ]
+        )
+    )
+
+    mapping, deduped = app._parse_gpdsr_mapping(gpdsr_path)
+
+    assert list(mapping["Record"]) == [2]
+    assert list(mapping["Slot"]) == [6]
+    assert deduped == []
+
+
 def test_parse_gpdsr_mapping_errors_on_duplicate_records(tmp_path):
     gpdsr_path = tmp_path / "bad_gpdsr.txt"
     gpdsr_path.write_text(
