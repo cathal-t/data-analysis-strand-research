@@ -1775,8 +1775,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             if tab == "overlay"
             else _violin_fig(areas, tensile, conds)
         )
-        children = _render_removed_feedback(feedback)
-        children.append(dcc.Graph(figure=fig, style={"height": "750px"}))
+        children = [dcc.Graph(figure=fig, style={"height": "750px"})]
+        alerts = _render_removed_feedback(feedback)
+        if alerts:
+            children.extend(alerts)
         return html.Div(children)
 
     # Download metrics
