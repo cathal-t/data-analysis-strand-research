@@ -94,11 +94,13 @@ def _b64_to_bytes(content: str) -> bytes:
     return base64.b64decode(content.partition(",")[2])
 
 
-def _bytes_to_dim(raw: bytes) -> dict[int, float]:
+def _bytes_to_dim(
+    raw: bytes, removed: dict[int, set[int]] | None = None
+) -> DimensionalData:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
         tmp.write(raw)
         tmp.flush()
-        return DimensionalData(Path(tmp.name)).map
+        return DimensionalData(Path(tmp.name), removed_slices=removed)
 
 
 def _bytes_to_ten(raw: bytes) -> TensileTest:
@@ -106,6 +108,206 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
         tmp.write(raw)
         tmp.flush()
         return TensileTest(Path(tmp.name))
+
+
+def _parse_removed_slices_csv(raw: bytes) -> list[dict[str, object]]:
+    try:
+        df = pd.read_csv(BytesIO(raw))
+    except Exception as exc:
+        raise ValueError("Unable to read removed slices CSV") from exc
+
+    if df.empty:
+        return []
+
+    lower_map = {col.strip().lower(): col for col in df.columns}
+    record_col = lower_map.get("record")
+    slot_col = lower_map.get("slot")
+    removed_col = next(
+        (orig for key, orig in lower_map.items() if "removed" in key and "slice" in key),
+        None,
+    )
+
+    if removed_col is None:
+        raise ValueError("Column 'Removed slice(s)' not found")
+    if record_col is None and slot_col is None:
+        raise ValueError("CSV must include a 'Record' or 'Slot' column")
+
+    def _coerce_int(value) -> int | None:
+        try:
+            if pd.isna(value):
+                return None
+        except TypeError:
+            pass
+        if value is None or str(value).strip() == "":
+            return None
+        try:
+            return int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return None
+
+    slice_re = re.compile(r"\d+")
+    aggregated: dict[int, dict[str, object]] = {}
+
+    for _, row in df.iterrows():
+        record_val = _coerce_int(row[record_col]) if record_col else None
+        slot_val = _coerce_int(row[slot_col]) if slot_col else None
+        removed_val = row.get(removed_col)
+        if removed_val is None:
+            continue
+        digits = slice_re.findall(str(removed_val))
+        if not digits:
+            continue
+        slices = {int(d) for d in digits}
+        slot_key = slot_val if slot_val is not None else record_val
+        if slot_key is None:
+            continue
+        entry = aggregated.setdefault(
+            int(slot_key),
+            {
+                "slot": int(slot_key),
+                "records": set(),
+                "slot_from_csv": None,
+                "slices": set(),
+            },
+        )
+        entry["slices"].update(slices)
+        if record_val is not None:
+            entry["records"].add(int(record_val))
+        if slot_val is not None:
+            entry["slot_from_csv"] = int(slot_val)
+
+    result: list[dict[str, object]] = []
+    for slot, data in sorted(aggregated.items()):
+        slices = sorted(data["slices"])
+        if not slices:
+            continue
+        records = sorted(data.get("records", set()))
+        slot_from_csv = data.get("slot_from_csv")
+        result.append(
+            {
+                "slot": int(slot),
+                "records": records,
+                "slot_from_csv": int(slot_from_csv) if slot_from_csv is not None else None,
+                "slices": slices,
+            }
+        )
+
+    return result
+
+
+def _entries_to_removal_map(entries: list[dict[str, object]]) -> dict[int, set[int]]:
+    removal_map: dict[int, set[int]] = {}
+    for entry in entries:
+        slot = entry.get("slot")
+        slices = entry.get("slices")
+        if slot is None or not slices:
+            continue
+        removal_map.setdefault(int(slot), set()).update(int(s) for s in slices)
+    return removal_map
+
+
+def _build_removed_feedback_data(
+    entries: list[dict[str, object]], dim_data: DimensionalData
+) -> dict[str, object] | None:
+    if not entries:
+        return None
+
+    items: list[dict[str, object]] = []
+    entries_by_slot = {int(entry["slot"]): entry for entry in entries if "slot" in entry}
+
+    for slot, entry in sorted(entries_by_slot.items()):
+        requested = [int(s) for s in entry.get("slices", [])]
+        records = [int(r) for r in entry.get("records", [])]
+        items.append(
+            {
+                "slot": slot,
+                "records": records,
+                "slot_from_csv": entry.get("slot_from_csv"),
+                "requested": requested,
+                "applied": dim_data.removed_applied.get(slot, []),
+                "missing": dim_data.removed_missing_slices.get(slot, []),
+                "dropped": slot in dim_data.removed_empty_slots,
+                "absent": slot in dim_data.removed_missing_slots,
+            }
+        )
+
+    extra_missing = [
+        slot for slot in dim_data.removed_missing_slots if slot not in entries_by_slot
+    ]
+
+    return {"items": items, "extra_missing_slots": extra_missing}
+
+
+def _render_removed_feedback(feedback: dict[str, object] | None) -> list:
+    if not feedback:
+        return []
+
+    items = feedback.get("items") or []
+    if not items:
+        return []
+
+    applied_items: list = []
+    warning_items: list = []
+
+    for item in items:
+        slot = item.get("slot")
+        records = item.get("records") or []
+        label_parts = []
+        if records:
+            rec_label = ", ".join(str(r) for r in records)
+            label_parts.append(f"Record {rec_label}")
+        if slot is not None:
+            label_parts.append(f"Slot {slot}")
+        label = " ".join(label_parts) if label_parts else f"Slot {slot}"
+
+        applied = item.get("applied") or []
+        if applied:
+            applied_text = ", ".join(f"Slice {s}" for s in applied)
+            text = f"{label}: removed {applied_text}."
+        else:
+            text = f"{label}: no matching slices from the summary were found."
+        if item.get("dropped"):
+            text += " Slot excluded from analysis because no slices remained."
+        applied_items.append(html.Li(text))
+
+        missing = item.get("missing") or []
+        if missing:
+            missing_text = ", ".join(f"Slice {s}" for s in missing)
+            warning_items.append(
+                html.Li(f"{label}: slices not found in dimensional file – {missing_text}.")
+            )
+        if item.get("absent"):
+            warning_items.append(html.Li(f"{label}: slot not present in dimensional file."))
+
+    extra_missing = feedback.get("extra_missing_slots") or []
+    for slot in extra_missing:
+        warning_items.append(html.Li(f"Slot {slot}: summary references a slot not in the dimensional file."))
+
+    alerts: list = []
+    if applied_items:
+        alerts.append(
+            dbc.Alert(
+                [
+                    html.H6("Removed slices applied", className="mb-2"),
+                    html.Ul(applied_items, className="mb-0"),
+                ],
+                color="info",
+                className="mb-3",
+            )
+        )
+    if warning_items:
+        alerts.append(
+            dbc.Alert(
+                [
+                    html.H6("Removed slice warnings", className="mb-2"),
+                    html.Ul(warning_items, className="mb-0"),
+                ],
+                color="warning",
+                className="mb-3",
+            )
+        )
+
+    return alerts
 
 
 def _parse_gpdsr_mapping(gpdsr_path: Path) -> tuple[pd.DataFrame, list[int]]:
@@ -817,6 +1019,20 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         ],
                         width="auto",
                     ),
+                    dbc.Col(
+                        [
+                            dcc.Upload(
+                                id="upload-removed",
+                                accept=".csv",
+                                children=dbc.Button(
+                                    "Upload Removed Slices", color="primary", id="btn-removed"
+                                ),
+                                multiple=False,
+                            ),
+                            html.Small(id="removed-msg", className="text-muted"),
+                        ],
+                        width="auto",
+                    ),
                 ],
                 className="g-3 flex-wrap",
             )
@@ -1395,6 +1611,16 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _ten_status(contents, filename):
         return ("success", f"Loaded: {filename}") if contents else ("primary", "")
 
+    @app.callback(
+        Output("btn-removed", "color"),
+        Output("removed-msg", "children"),
+        Input("upload-removed", "contents"),
+        State("upload-removed", "filename"),
+        prevent_initial_call=True,
+    )
+    def _removed_status(contents, filename):
+        return ("success", f"Loaded: {filename}") if contents else ("primary", "")
+
     # Prime table once both files uploaded
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
@@ -1405,7 +1631,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _prime_table(dim_b64, ten_b64):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
-        areas = _bytes_to_dim(_b64_to_bytes(dim_b64))
+        dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64))
+        areas = dim_data.map
         tensile = _bytes_to_ten(_b64_to_bytes(ten_b64))
         total = _max_slot(areas, tensile)
         return [{"name": "Condition 1", "slot_start": 1, "slot_end": total, "is_control": TICK}]
@@ -1458,9 +1685,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         State("cond-table", "data"),
         State("upload-dim", "contents"),
         State("upload-ten", "contents"),
+        State("upload-removed", "contents"),
+        State("upload-removed", "filename"),
         prevent_initial_call=True,
     )
-    def _cache(_, rows, dim_b64, ten_b64):
+    def _cache(_, rows, dim_b64, ten_b64, removed_b64, removed_name):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
 
@@ -1482,9 +1711,56 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if sum(c.is_control for c in conds) != 1:
             raise ConfigError("Mark exactly one ✓ row as control")
 
-        return json.dumps(
-            {"dim_b64": dim_b64, "ten_b64": ten_b64, "conds": [asdict(c) for c in conds]}
+        removal_entries: list[dict[str, object]] = []
+        removal_map: dict[int, set[int]] | None = None
+        removal_feedback: dict[str, object] | None = None
+
+        if removed_b64:
+            try:
+                removal_entries = _parse_removed_slices_csv(_b64_to_bytes(removed_b64))
+            except ValueError as exc:
+                raise ConfigError(str(exc)) from exc
+            removal_map = _entries_to_removal_map(removal_entries)
+
+        dim_bytes = _b64_to_bytes(dim_b64)
+        dim_data = _bytes_to_dim(dim_bytes, removal_map if removal_map else None)
+        if removal_entries:
+            removal_feedback = _build_removed_feedback_data(removal_entries, dim_data)
+
+        payload: dict[str, object] = {
+            "dim_b64": dim_b64,
+            "ten_b64": ten_b64,
+            "conds": [asdict(c) for c in conds],
+        }
+
+        if removed_b64:
+            payload["removed"] = {
+                "entries": removal_entries,
+                "feedback": removal_feedback,
+                "filename": removed_name,
+            }
+
+        return json.dumps(payload)
+
+    def _analysis_inputs(payload: str | None):
+        if not payload:
+            return default_areas, default_tensile, default_conds, None
+
+        data = json.loads(payload)
+        removed_info = data.get("removed") or {}
+        entries = removed_info.get("entries") or []
+        removal_map = _entries_to_removal_map(entries)
+        dim_data = _bytes_to_dim(
+            _b64_to_bytes(data["dim_b64"]), removal_map if removal_map else None
         )
+        feedback = removed_info.get("feedback")
+        if entries and not feedback:
+            feedback = _build_removed_feedback_data(entries, dim_data)
+
+        tensile = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
+        conds = [Condition(**c) for c in data["conds"]]
+
+        return dim_data.map, tensile, conds, feedback
 
     # Plot
     @app.callback(
@@ -1493,16 +1769,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Input("exp-data", "data"),
     )
     def _draw(tab, payload):
-        if payload:
-            d = json.loads(payload)
-            areas = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
-            tensile = _bytes_to_ten(_b64_to_bytes(d["ten_b64"]))
-            conds = [Condition(**c) for c in d["conds"]]
-        else:
-            areas, tensile, conds = default_areas, default_tensile, default_conds
-
-        fig = _overlay_fig(areas, tensile, conds) if tab == "overlay" else _violin_fig(areas, tensile, conds)
-        return dcc.Graph(figure=fig, style={"height": "750px"})
+        areas, tensile, conds, feedback = _analysis_inputs(payload)
+        fig = (
+            _overlay_fig(areas, tensile, conds)
+            if tab == "overlay"
+            else _violin_fig(areas, tensile, conds)
+        )
+        children = _render_removed_feedback(feedback)
+        children.append(dcc.Graph(figure=fig, style={"height": "750px"}))
+        return html.Div(children)
 
     # Download metrics
     @app.callback(
@@ -1515,10 +1790,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _dl_metrics(_, fname, payload):
         if not payload:
             raise PreventUpdate
-        d = json.loads(payload)
-        areas = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
-        tensile = _bytes_to_ten(_b64_to_bytes(d["ten_b64"]))
-        conds = [Condition(**c) for c in d["conds"]]
+        areas, tensile, conds, _ = _analysis_inputs(payload)
         df = build_summary(areas, tensile, conds)
         return dcc.send_bytes(_to_excel_bytes({"Metrics": df}), fname or "metrics.xlsx")
 
@@ -1533,10 +1805,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _dl_stats(_, fname, payload):
         if not payload:
             raise PreventUpdate
-        d = json.loads(payload)
-        areas = _bytes_to_dim(_b64_to_bytes(d["dim_b64"]))
-        tensile = _bytes_to_ten(_b64_to_bytes(d["ten_b64"]))
-        conds = [Condition(**c) for c in d["conds"]]
+        areas, tensile, conds, _ = _analysis_inputs(payload)
 
         summary = build_summary(areas, tensile, conds)
         metrics_od = OrderedDict(
