@@ -67,6 +67,12 @@ def test_parse_export_directory_rejects_relative_path():
         app._parse_export_directory("relative/path")
 
 
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_parse_export_directory_requires_value(value):
+    with pytest.raises(ValueError):
+        app._parse_export_directory(value)
+
+
 def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
     gpdsr_path = tmp_path / "example_gpdsr.txt"
     gpdsr_path.write_text(
