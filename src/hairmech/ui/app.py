@@ -467,15 +467,15 @@ def _infer_original_dir(filename: str) -> Path | None:
     return None
 
 
-def _parse_export_directory(value: str | None) -> Path | None:
-    """Parse a user-provided export directory, ensuring it is absolute if provided."""
+def _parse_export_directory(value: str | None) -> Path:
+    """Parse a user-provided export directory, ensuring it is absolute and present."""
 
-    if not value:
-        return None
+    if value is None:
+        raise ValueError("Please provide an absolute export directory path.")
 
     value = value.strip()
     if not value:
-        return None
+        raise ValueError("Please provide an absolute export directory path.")
 
     fakepath_tokens = {"c:/fakepath", "c\\fakepath", "c:/fakepath/", "c\\fakepath\\"}
 
@@ -1134,6 +1134,21 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             "using the UvWin dimensional export tool.",
                             className="text-muted",
                         ),
+                        html.Div(
+                            [
+                                dbc.Label("Export directory", html_for="dim-export-dir"),
+                                dbc.Input(
+                                    id="dim-export-dir",
+                                    type="text",
+                                    placeholder="e.g. C:/Data/Exports",
+                                    required=True,
+                                ),
+                                dbc.FormText(
+                                    "Provide the absolute folder path where dimensional exports should be saved.",
+                                ),
+                            ],
+                            className="mb-3",
+                        ),
                         dcc.Upload(
                             id="upload-dim-cleaning",
                             accept=".uvc",
@@ -1156,21 +1171,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 "textAlign": "center",
                                 "backgroundColor": "#fafafa",
                             },
-                        ),
-                        html.Div(
-                            [
-                                dbc.Label("Export directory (optional)", html_for="dim-export-dir"),
-                                dbc.Input(
-                                    id="dim-export-dir",
-                                    type="text",
-                                    placeholder="e.g. C:/Data/Exports",
-                                ),
-                                dbc.FormText(
-                                    "Provide a folder where dimensional exports should be saved."
-                                    " Leave blank to use the upload's original folder when available.",
-                                ),
-                            ],
-                            className="mt-3",
                         ),
                         dcc.Store(id="dim-export-directory"),
                         dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
@@ -1322,13 +1322,13 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if not contents or not filename:
             raise PreventUpdate
 
-        raw = _b64_to_bytes(contents)
-        uvc_path, original_dir = _store_uvc_file(raw, filename)
-
         try:
             preferred_path = _parse_export_directory(preferred_dir)
         except ValueError as exc:
             return str(exc), "danger", True, [], None, {"display": "none"}
+
+        raw = _b64_to_bytes(contents)
+        uvc_path, original_dir = _store_uvc_file(raw, filename)
 
         export_path, _ = _resolve_export_target(
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
