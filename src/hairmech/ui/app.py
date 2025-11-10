@@ -760,7 +760,7 @@ def _make_dimensional_record_fig(
 
     for idx, col in enumerate(cols, start=1):
         fig.add_trace(
-            go.Scatter(
+            go.Scattergl(
                 x=x_vals,
                 y=df[col],
                 mode="lines",
