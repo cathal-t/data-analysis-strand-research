@@ -1778,7 +1778,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         children = [
             dcc.Graph(
                 figure=fig,
-                style={"height": "750px", "marginBottom": "3rem"},
+                style={"height": "750px", "marginBottom": "4rem"},
                 className="mb-5",
             )
         ]
