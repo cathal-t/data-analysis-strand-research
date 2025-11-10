@@ -1775,10 +1775,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             if tab == "overlay"
             else _violin_fig(areas, tensile, conds)
         )
+        layout_height = getattr(fig.layout, "height", None)
+        graph_height = 750
+        if isinstance(layout_height, (int, float)):
+            graph_height = max(graph_height, int(layout_height))
+
         children = [
             dcc.Graph(
                 figure=fig,
-                style={"height": "750px", "marginBottom": "8rem"},
+                style={"height": f"{graph_height}px", "marginBottom": "8rem"},
                 className="mb-5",
             )
         ]
