@@ -742,7 +742,7 @@ def _make_dimensional_record_fig(
     fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
-    stacked = df[cols].stack(dropna=True)
+    stacked = df[cols].stack(dropna=True, future_stack=True)
     y_range: list[float] | None = None
     if not stacked.empty:
         y_min = float(stacked.min())
