@@ -743,6 +743,11 @@ def _make_dimensional_record_fig(
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
     stacked = df[cols].stack(dropna=True, future_stack=True)
+    try:
+        s = df[cols].stack(future_stack=True)
+    except TypeError:
+        s = df[cols].stack(dropna=True)
+    
     y_range: list[float] | None = None
     if not stacked.empty:
         y_min = float(stacked.min())
