@@ -16,7 +16,6 @@ Changes in this version
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import platform
 import re
@@ -36,7 +35,6 @@ from dash import Dash, dcc, html, dash_table
 from dash.dependencies import ALL, MATCH, Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
-import plotly.io as pio
 from plotly.subplots import make_subplots
 
 from ..analysis import build_summary, build_stats, long_to_wide
@@ -50,10 +48,6 @@ from ..tensile import TensileTest
 TICK = "✓"
 EMPTY = ""
 DEFAULT_RE = re.compile(r"Condition\s+\d+", re.I)
-
-
-# ────────────── caches ──────────────
-_FIGURE_IMAGE_CACHE: dict[str, str] = {}
 
 # ────────────── helper I/O ──────────────
 def _load_experiment(root: Path) -> Tuple[dict[int, float], TensileTest, List[Condition]]:
@@ -841,28 +835,6 @@ def _make_dimensional_record_fig(
     return fig
 
 
-def _figure_to_image_uri(fig: go.Figure, *, image_format: str = "png") -> str:
-    format_normalized = image_format.lower()
-    if format_normalized not in {"png", "svg"}:
-        raise ValueError(f"Unsupported image format: {image_format}")
-
-    fig_json = fig.to_json()
-    cache_key = hashlib.sha256(
-        (format_normalized + "\0" + fig_json).encode("utf-8")
-    ).hexdigest()
-
-    cached = _FIGURE_IMAGE_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
-    scale = 2 if format_normalized == "png" else 1
-    image_bytes = pio.to_image(fig, format=format_normalized, scale=scale)
-    encoded = base64.b64encode(image_bytes).decode("ascii")
-    uri = f"data:image/{format_normalized};base64,{encoded}"
-    _FIGURE_IMAGE_CACHE[cache_key] = uri
-    return uri
-
-
 def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dict[str, float]]:
     cols = [c for c in slice_cols if c in df.columns]
     stats: list[dict[str, float]] = []
@@ -1014,17 +986,12 @@ def _build_dimensional_plot_children(
         if df.empty:
             continue
         fig = _make_dimensional_record_fig(record_id, df, slice_cols)
-        img_src = _figure_to_image_uri(fig)
         error_table = _make_slice_error_table(record_id, df, slice_cols)
         children.append(
             dbc.Card(
                 dbc.CardBody(
                     [
-                        html.Img(
-                            src=img_src,
-                            alt=f"Dimensional record {record_id}",
-                            style={"width": "100%"},
-                        ),
+                        dcc.Graph(figure=fig, config={"displaylogo": False}),
                         error_table,
                     ]
                 ),
