@@ -1484,10 +1484,13 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Input("dim-generate-remove-list", "n_clicks"),
         State({"type": "dim-slice-store", "record": ALL}, "data"),
         State({"type": "dim-slice-store", "record": ALL}, "id"),
+        State({"type": "dim-slice-data", "record": ALL}, "data"),
         State("dim-export-directory", "data"),
         prevent_initial_call=True,
     )
-    def _generate_removed_slice_summary(n_clicks, removed_lists, store_ids, export_directory):
+    def _generate_removed_slice_summary(
+        n_clicks, removed_lists, store_ids, slice_stats_lists, export_directory
+    ):
         if not n_clicks:
             raise PreventUpdate
 
@@ -1500,8 +1503,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             return message, None, export_directory
 
         summary_rows = []
+        removed_by_record: dict[int, set[str]] = {}
+        stats_by_record: dict[int, list[dict[str, float]]] = {}
+
         removed_lists = removed_lists or [None] * len(store_ids)
-        for store_id, removed in zip(store_ids, removed_lists):
+        slice_stats_lists = slice_stats_lists or [None] * len(store_ids)
+
+        for store_id, removed, stats in zip(
+            store_ids, removed_lists, slice_stats_lists
+        ):
             record_id = store_id.get("record") if isinstance(store_id, dict) else None
             if record_id is None:
                 continue
@@ -1513,6 +1523,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             removed_list = [str(s) for s in (removed or [])]
             removed_display = ", ".join(removed_list) if removed_list else "None"
             summary_rows.append({"Record": record_int, "Removed slice(s)": removed_display})
+            removed_by_record[record_int] = set(removed_list)
+
+            if isinstance(stats, list):
+                valid_stats: list[dict[str, float]] = []
+                for entry in stats:
+                    if isinstance(entry, dict):
+                        valid_stats.append(entry)
+                if valid_stats:
+                    stats_by_record[record_int] = valid_stats
 
         if not summary_rows:
             message = dbc.Alert(
@@ -1723,6 +1742,103 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 )
 
         alerts.append(csv_message)
+
+        autodim_message = None
+        if export_dir_path is not None:
+            autodim_path = export_dir_path / "removed_slices_summary_autodimensional.txt"
+
+            autodim_lines = [
+                "Auto-generated dimensional summary",
+                "Record\tSlot\tDescription\tSlice No.\tCross-Sectional Area\tMax Diameter\tMin Diameter",
+            ]
+
+            autodim_rows = []
+            for record, stats in sorted(stats_by_record.items()):
+                removed_set = removed_by_record.get(record, set())
+                slot_series = summary_df.loc[
+                    summary_df["Record"] == record, "Slot"
+                ]
+                slot_value = slot_series.iloc[0] if not slot_series.empty else None
+                try:
+                    slot_number = int(slot_value) if pd.notna(slot_value) else int(record)
+                except (TypeError, ValueError):
+                    slot_number = int(record)
+
+                for idx, entry in enumerate(stats, start=1):
+                    slice_name = str(entry.get("slice", idx))
+                    if slice_name in removed_set:
+                        continue
+
+                    min_val = entry.get("min")
+                    max_val = entry.get("max")
+                    try:
+                        min_f = float(min_val)
+                        max_f = float(max_val)
+                    except (TypeError, ValueError):
+                        continue
+                    if pd.isna(min_f) or pd.isna(max_f):
+                        continue
+
+                    slice_digits = re.findall(r"\d+", slice_name)
+                    slice_no = int(slice_digits[-1]) if slice_digits else idx
+
+                    area = float(np.pi * (min_f / 2.0) * (max_f / 2.0))
+                    autodim_rows.append(
+                        (
+                            record,
+                            slot_number,
+                            slice_no,
+                            area,
+                            max_f,
+                            min_f,
+                        )
+                    )
+
+            if autodim_rows:
+                for row in autodim_rows:
+                    record, slot_number, slice_no, area, max_f, min_f = row
+                    description = f"Slot {slot_number} : Auto-generated"
+                    autodim_lines.append(
+                        "\t".join(
+                            [
+                                str(record),
+                                str(slot_number),
+                                description,
+                                str(slice_no),
+                                f"{area:.4f}",
+                                f"{max_f:.4f}",
+                                f"{min_f:.4f}",
+                            ]
+                        )
+                    )
+
+                autodim_text = "\n".join(autodim_lines) + "\n"
+                try:
+                    autodim_path.write_text(autodim_text)
+                except Exception as exc:  # pragma: no cover - filesystem errors
+                    autodim_message = dbc.Alert(
+                        f"Unable to save autodimensional summary to '{autodim_path}': {exc}",
+                        color="danger",
+                        className="mb-0",
+                    )
+                else:
+                    autodim_message = dbc.Alert(
+                        f"Autodimensional summary saved to '{autodim_path}'.",
+                        color="success",
+                        className="mb-0",
+                    )
+                    exports_map.setdefault("autodimensional", str(autodim_path))
+                    if store_payload is not None:
+                        store_payload["autodimensional"] = str(autodim_path)
+            else:
+                autodim_message = dbc.Alert(
+                    "Autodimensional summary could not be generated because no slice statistics were available.",
+                    color="warning",
+                    className="mb-0",
+                )
+
+        if autodim_message is not None:
+            alerts.append(autodim_message)
 
         updated_store = store_payload if store_payload is not None else export_directory
 
