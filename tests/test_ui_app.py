@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from hairmech.ui import app
@@ -212,6 +214,60 @@ def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
     assert expected_gpdsr == Path(
         captured_cmds[1]["cmd"][captured_cmds[1]["cmd"].index("-o") + 1]
     )
+
+
+def test_make_dimensional_record_fig_preserves_padding():
+    df = pd.DataFrame(
+        {
+            "N": [1, 2, 3, 4],
+            "Slice 1": [1.0, 2.0, np.nan, 4.0],
+            "Slice 2": [2.0, 2.5, 3.5, 4.0],
+        }
+    )
+
+    fig = app._make_dimensional_record_fig(7, df, ["Slice 1", "Slice 2"])
+
+    stacked = df[["Slice 1", "Slice 2"]].stack(future_stack=True).dropna()
+    y_min = float(stacked.min())
+    y_max = float(stacked.max())
+    padding = (y_max - y_min) * 0.05
+    expected_range = [y_min - padding, y_max + padding]
+
+    assert fig.layout.yaxis.range == pytest.approx(expected_range)
+    assert fig.layout.yaxis2.range == pytest.approx(expected_range)
+
+
+def test_make_dimensional_record_fig_handles_flat_series_padding():
+    df = pd.DataFrame(
+        {
+            "Slice A": [3.0, 3.0, 3.0],
+            "Slice B": [np.nan, np.nan, np.nan],
+        }
+    )
+
+    fig = app._make_dimensional_record_fig(5, df, ["Slice A", "Slice B"])
+
+    padding = max(abs(3.0), 1.0) * 0.05
+    expected_range = [3.0 - padding, 3.0 + padding]
+
+    assert fig.layout.yaxis.range == pytest.approx(expected_range)
+
+
+def test_compute_slice_extremes_numeric_only():
+    df = pd.DataFrame(
+        {
+            "Slice 1": [1.0, np.nan, 4.0],
+            "Slice 2": [2.5, 2.5, 2.5],
+            "Notes": ["low", "med", "high"],
+        }
+    )
+
+    stats = app._compute_slice_extremes(df, ["Slice 1", "Slice 2", "Notes"])
+
+    assert stats == [
+        {"slice": "Slice 1", "min": 1.0, "max": 4.0},
+        {"slice": "Slice 2", "min": 2.5, "max": 2.5},
+    ]
 
 
 def test_run_dimensional_export_creates_missing_original_dir(monkeypatch, tmp_path):
