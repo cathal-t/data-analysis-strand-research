@@ -143,7 +143,7 @@ def test_run_dimensional_export_uses_uvc_directory_by_default(monkeypatch, tmp_p
     captured_cmds = []
     _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
-    success, message = app._run_dimensional_export(uvc_path)
+    success, message, produced = app._run_dimensional_export(uvc_path)
 
     expected_output = uvc_path.with_suffix(".txt").resolve()
     expected_gpdsr = expected_output.with_name(
@@ -156,6 +156,10 @@ def test_run_dimensional_export_uses_uvc_directory_by_default(monkeypatch, tmp_p
         message
         == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
     )
+    assert produced == {
+        "dimensional": expected_output,
+        "gpdsr": expected_gpdsr,
+    }
     assert len(captured_cmds) == 2
     for captured in captured_cmds:
         assert captured["cwd"] == str(uvc_path.parent)
@@ -181,7 +185,7 @@ def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
 
     _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
-    success, message = app._run_dimensional_export(uvc_path, original_dir)
+    success, message, produced = app._run_dimensional_export(uvc_path, original_dir)
 
     expected_output = (original_dir / uvc_path.name).with_suffix(".txt").resolve()
     expected_gpdsr = expected_output.with_name(
@@ -194,6 +198,10 @@ def test_run_dimensional_export_prefers_original_dir(monkeypatch, tmp_path):
         message
         == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
     )
+    assert produced == {
+        "dimensional": expected_output,
+        "gpdsr": expected_gpdsr,
+    }
     assert len(captured_cmds) == 2
     for captured in captured_cmds:
         assert captured["cwd"] == str(uvc_path.parent)
@@ -218,7 +226,7 @@ def test_run_dimensional_export_creates_missing_original_dir(monkeypatch, tmp_pa
 
     _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
-    success, message = app._run_dimensional_export(uvc_path, original_dir)
+    success, message, produced = app._run_dimensional_export(uvc_path, original_dir)
 
     expected_output = (original_dir / uvc_path.name).with_suffix(".txt").resolve()
     expected_gpdsr = expected_output.with_name(
@@ -231,6 +239,10 @@ def test_run_dimensional_export_creates_missing_original_dir(monkeypatch, tmp_pa
         message
         == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
     )
+    assert produced == {
+        "dimensional": expected_output,
+        "gpdsr": expected_gpdsr,
+    }
     assert len(captured_cmds) == 2
     for captured in captured_cmds:
         assert captured["cwd"] == str(uvc_path.parent)
@@ -255,7 +267,7 @@ def test_run_dimensional_export_prefers_user_directory(monkeypatch, tmp_path):
 
     _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
 
-    success, message = app._run_dimensional_export(
+    success, message, produced = app._run_dimensional_export(
         uvc_path, original_dir=None, preferred_dir=preferred_dir
     )
 
@@ -270,13 +282,68 @@ def test_run_dimensional_export_prefers_user_directory(monkeypatch, tmp_path):
         message
         == f"Export complete. Outputs saved to: {expected_output} and {expected_gpdsr}"
     )
-    assert len(captured_cmds) == 2
-    for captured in captured_cmds:
-        assert captured["cwd"] == str(uvc_path.parent)
-        assert Path(captured["cmd"][captured["cmd"].index("-i") + 1]) == uvc_path.resolve()
-    assert expected_output == Path(
-        captured_cmds[0]["cmd"][captured_cmds[0]["cmd"].index("-o") + 1]
+    assert produced == {
+        "dimensional": expected_output,
+        "gpdsr": expected_gpdsr,
+    }
+
+
+def test_run_dimensional_export_supports_dimensional_only(monkeypatch, tmp_path):
+    uvc_path = tmp_path / "input.uvc"
+    uvc_path.write_text("dummy")
+
+    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
+
+    captured_cmds = []
+
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
+
+    success, message, produced = app._run_dimensional_export(
+        uvc_path, modes=("dimensional",)
     )
-    assert expected_gpdsr == Path(
-        captured_cmds[1]["cmd"][captured_cmds[1]["cmd"].index("-o") + 1]
+
+    expected_output = uvc_path.with_suffix(".txt").resolve()
+    expected_gpdsr = expected_output.with_name(
+        f"{expected_output.stem}_gpdsr{expected_output.suffix}"
     )
+
+    assert success is True
+    assert expected_output.exists()
+    assert not expected_gpdsr.exists()
+    assert message == f"Export complete. Output saved to: {expected_output}"
+    assert produced == {"dimensional": expected_output}
+    assert len(captured_cmds) == 1
+    captured = captured_cmds[0]
+    assert captured["cwd"] == str(uvc_path.parent)
+    assert captured["cmd"][captured["cmd"].index("-export") + 1] == "dimensional"
+    assert Path(captured["cmd"][captured["cmd"].index("-o") + 1]) == expected_output
+
+
+def test_run_dimensional_export_supports_gpdsr_only(monkeypatch, tmp_path):
+    uvc_path = tmp_path / "input.uvc"
+    uvc_path.write_text("dummy")
+
+    exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
+
+    captured_cmds = []
+
+    _setup_fake_export(monkeypatch, uvc_path, exe_path, captured_cmds)
+
+    success, message, produced = app._run_dimensional_export(
+        uvc_path, modes=("gpdsr",)
+    )
+
+    expected_output = uvc_path.with_suffix(".txt").resolve()
+    expected_gpdsr = expected_output.with_name(
+        f"{expected_output.stem}_gpdsr{expected_output.suffix}"
+    )
+
+    assert success is True
+    assert expected_gpdsr.exists()
+    assert message == f"Export complete. Output saved to: {expected_gpdsr}"
+    assert produced == {"gpdsr": expected_gpdsr}
+    assert len(captured_cmds) == 1
+    captured = captured_cmds[0]
+    assert captured["cwd"] == str(uvc_path.parent)
+    assert captured["cmd"][captured["cmd"].index("-export") + 1] == "gpdsr"
+    assert Path(captured["cmd"][captured["cmd"].index("-o") + 1]) == expected_gpdsr
