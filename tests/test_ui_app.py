@@ -253,6 +253,30 @@ def test_make_dimensional_record_fig_handles_flat_series_padding():
     assert fig.layout.yaxis.range == pytest.approx(expected_range)
 
 
+def test_figure_to_image_uri_caches(monkeypatch):
+    fig = app._make_dimensional_record_fig(
+        1,
+        pd.DataFrame({"N": [1, 2], "Slice": [1.0, 2.0]}),
+        ["Slice"],
+    )
+
+    app._FIGURE_IMAGE_CACHE.clear()
+    calls: list[tuple[str, int]] = []
+
+    def fake_to_image(fig, *, format, scale):  # type: ignore[override]
+        calls.append((format, scale))
+        return b"image-bytes"
+
+    monkeypatch.setattr(app.pio, "to_image", fake_to_image)
+
+    uri1 = app._figure_to_image_uri(fig)
+    uri2 = app._figure_to_image_uri(fig)
+
+    assert uri1 == uri2
+    assert uri1.startswith("data:image/png;base64,")
+    assert calls == [("png", 2)]
+
+
 def test_compute_slice_extremes_numeric_only():
     df = pd.DataFrame(
         {
