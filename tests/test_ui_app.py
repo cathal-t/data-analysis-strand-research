@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from hairmech.ui import app
+from dash import html
 
 
 def test_infer_original_dir_windows_path():
@@ -252,6 +253,37 @@ def test_make_dimensional_record_fig_handles_flat_series_padding():
 
     assert fig.layout.yaxis.range == pytest.approx(expected_range)
 
+
+def test_build_dimensional_plot_children_renders_cached_images(monkeypatch):
+    app._dimensional_image_cache.clear()
+
+    df = pd.DataFrame({"N": [1, 2, 3], "Slice 1": [1.0, 2.0, 3.0]})
+    records = {4: df}
+
+    calls: list[tuple] = []
+
+    def fake_to_image(fig, format="png", **kwargs):
+        calls.append((fig, format))
+        return b"PNGDATA"
+
+    monkeypatch.setattr(app.pio, "to_image", fake_to_image)
+
+    first_children = app._build_dimensional_plot_children(records, ["Slice 1"])
+    assert len(first_children) == 1
+
+    card = first_children[0]
+    body = card.children
+    assert getattr(body, "children", None)
+    img = body.children[0]
+    assert isinstance(img, html.Img)
+    assert img.src.startswith("data:image/png;base64,")
+    assert len(calls) == 1
+    assert calls[0][1] == "png"
+
+    second_children = app._build_dimensional_plot_children(records, ["Slice 1"])
+    assert len(second_children) == 1
+    assert len(calls) == 1
+    assert calls[0][1] == "png"
 
 def test_compute_slice_extremes_numeric_only():
     df = pd.DataFrame(

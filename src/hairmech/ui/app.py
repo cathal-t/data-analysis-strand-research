@@ -16,6 +16,7 @@ Changes in this version
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import platform
 import re
@@ -35,6 +36,7 @@ from dash import Dash, dcc, html, dash_table
 from dash.dependencies import ALL, MATCH, Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 
 from ..analysis import build_summary, build_stats, long_to_wide
@@ -835,6 +837,47 @@ def _make_dimensional_record_fig(
     return fig
 
 
+_dimensional_image_cache: dict[str, str] = {}
+
+
+def _dimensional_image_cache_key(
+    record_id: int, df: pd.DataFrame, cols: list[str]
+) -> str:
+    relevant_cols = [c for c in ["N", *cols] if c in df.columns]
+    rows: list[list[object]] = []
+    for row in df[relevant_cols].itertuples(index=False, name=None):
+        coerced: list[object] = []
+        for value in row:
+            if pd.isna(value):
+                coerced.append(None)
+            else:
+                try:
+                    coerced.append(float(value))
+                except (TypeError, ValueError):
+                    coerced.append(str(value))
+        rows.append(coerced)
+
+    payload = {
+        "record": int(record_id),
+        "columns": relevant_cols,
+        "rows": rows,
+    }
+    encoded = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _figure_to_png_data_uri(fig: go.Figure, cache_key: str) -> str:
+    cached = _dimensional_image_cache.get(cache_key)
+    if cached:
+        return cached
+
+    image_bytes = pio.to_image(fig, format="png")
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    uri = f"data:image/png;base64,{encoded}"
+    _dimensional_image_cache[cache_key] = uri
+    return uri
+
+
 def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dict[str, float]]:
     cols = [c for c in slice_cols if c in df.columns]
     stats: list[dict[str, float]] = []
@@ -986,12 +1029,18 @@ def _build_dimensional_plot_children(
         if df.empty:
             continue
         fig = _make_dimensional_record_fig(record_id, df, slice_cols)
+        cache_key = _dimensional_image_cache_key(record_id, df, slice_cols)
+        img_src = _figure_to_png_data_uri(fig, cache_key)
         error_table = _make_slice_error_table(record_id, df, slice_cols)
         children.append(
             dbc.Card(
                 dbc.CardBody(
                     [
-                        dcc.Graph(figure=fig, config={"displaylogo": False}),
+                        html.Img(
+                            src=img_src,
+                            alt=f"Dimensional plot for record {record_id}",
+                            className="img-fluid",
+                        ),
                         error_table,
                     ]
                 ),
