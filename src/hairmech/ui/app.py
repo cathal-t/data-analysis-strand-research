@@ -29,6 +29,7 @@ from typing import List, Tuple
 
 import dash
 import dash_bootstrap_components as dbc
+import numpy as np
 import pandas as pd
 from dash import Dash, dcc, html, dash_table
 from dash.dependencies import ALL, MATCH, Input, Output, State
@@ -790,21 +791,23 @@ def _make_dimensional_record_fig(
     fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
-    stacked = df[cols].stack(dropna=True)
-    
+    values = df[cols].to_numpy(dtype=float, na_value=np.nan)
+
     y_range: list[float] | None = None
-    if not stacked.empty:
-        y_min = float(stacked.min())
-        y_max = float(stacked.max())
-        if y_max <= y_min:
-            padding = max(abs(y_max), 1.0) * 0.05
-            y_min -= padding
-            y_max += padding
-        else:
-            padding = (y_max - y_min) * 0.05
-            y_min -= padding
-            y_max += padding
-        y_range = [y_min, y_max]
+    if values.size:
+        with np.errstate(all="ignore"):
+            y_min = float(np.nanmin(values))
+            y_max = float(np.nanmax(values))
+        if np.isfinite(y_min) and np.isfinite(y_max):
+            if y_max <= y_min:
+                padding = max(abs(y_max), 1.0) * 0.05
+                y_min -= padding
+                y_max += padding
+            else:
+                padding = (y_max - y_min) * 0.05
+                y_min -= padding
+                y_max += padding
+            y_range = [y_min, y_max]
 
     for idx, col in enumerate(cols, start=1):
         fig.add_trace(
@@ -836,7 +839,10 @@ def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dic
     cols = [c for c in slice_cols if c in df.columns]
     stats: list[dict[str, float]] = []
     for col in cols:
-        series = pd.to_numeric(df[col], errors="coerce").dropna()
+        series = df[col]
+        if not pd.api.types.is_numeric_dtype(series):
+            continue
+        series = series.dropna()
         if series.empty:
             continue
         stats.append({"slice": col, "min": float(series.min()), "max": float(series.max())})
