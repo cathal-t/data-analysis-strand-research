@@ -538,15 +538,32 @@ def _run_dimensional_export(
     uvc_path: Path,
     original_dir: Path | None = None,
     preferred_dir: Path | None = None,
-) -> tuple[bool, str]:
-    """Invoke UvWin4 to export dimensional data for the provided UVC file."""
+    modes: tuple[str, ...] | list[str] | None = None,
+) -> tuple[bool, str, dict[str, Path]]:
+    """Invoke UvWin4 to export dimensional data for the provided UVC file.
+
+    Parameters
+    ----------
+    uvc_path:
+        Path to the source UVC file.
+    original_dir / preferred_dir:
+        Optional directories used to resolve the export destination.
+    modes:
+        Iterable of export modes to request from UvWin. Supported values are
+        ``"dimensional"`` and ``"gpdsr"``. When ``None`` both exports are
+        generated.
+    """
 
     if platform.system() != "Windows":
-        return False, "Dimensional export is only available on Windows installations."
+        return (
+            False,
+            "Dimensional export is only available on Windows installations.",
+            {},
+        )
 
     exe_path = Path("C:/Program Files (x86)/UvWin4/UvWin.exe")
     if not exe_path.exists():
-        return False, f"UvWin executable not found at '{exe_path}'."
+        return False, f"UvWin executable not found at '{exe_path}'.", {}
 
     output_file, output_parent = _resolve_export_target(
         uvc_path, original_dir, preferred_dir
@@ -559,15 +576,35 @@ def _run_dimensional_export(
     try:
         output_parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        return False, f"Unable to prepare export directory '{output_parent}': {exc}"
+        return (
+            False,
+            f"Unable to prepare export directory '{output_parent}': {exc}",
+            {},
+        )
 
     uvc_abs = uvc_path.resolve()
-    exports = [
-        ("dimensional", output_file),
-        ("gpdsr", gpdsr_output),
-    ]
+    available_exports: dict[str, Path] = {
+        "dimensional": output_file,
+        "gpdsr": gpdsr_output,
+    }
+
+    if modes is None:
+        modes_to_run = tuple(available_exports.keys())
+    else:
+        normalized: list[str] = []
+        for mode in modes:
+            if mode not in available_exports:
+                return False, f"Unsupported export mode '{mode}'.", {}
+            if mode not in normalized:
+                normalized.append(mode)
+        if not normalized:
+            return False, "No export modes were requested.", {}
+        modes_to_run = tuple(normalized)
+
+    exports = [(mode, available_exports[mode]) for mode in modes_to_run]
 
     messages: list[str] = []
+    produced: dict[str, Path] = {}
 
     for export_name, export_path in exports:
         export_abs = export_path.resolve()
@@ -596,23 +633,34 @@ def _run_dimensional_export(
                 check=True,
             )
         except FileNotFoundError:
-            return False, f"UvWin executable not found at '{exe_path}'."
+            return False, f"UvWin executable not found at '{exe_path}'.", {}
         except subprocess.CalledProcessError as exc:
             stderr = exc.stderr.strip() if exc.stderr else ""
             stdout = exc.stdout.strip() if exc.stdout else ""
             details = stderr or stdout or str(exc)
-            return False, f"{export_name.capitalize()} export failed: {details}"
+            return False, f"{export_name.capitalize()} export failed: {details}", {}
 
         messages.append(result.stdout.strip())
+        if export_path.exists():
+            produced[export_name] = export_path.resolve()
 
-    if output_file.exists() and gpdsr_output.exists():
-        return (
-            True,
-            f"Export complete. Outputs saved to: {output_file} and {gpdsr_output}",
-        )
+    if produced:
+        produced_values = list(produced.values())
+        if len(produced_values) == 1:
+            message = f"Export complete. Output saved to: {produced_values[0]}"
+        elif len(produced_values) == 2:
+            message = (
+                "Export complete. Outputs saved to: "
+                f"{produced_values[0]} and {produced_values[1]}"
+            )
+        else:
+            produced_text = ", ".join(str(path) for path in produced_values)
+            message = f"Export complete. Outputs saved to: {produced_text}"
+    else:
+        fallback = next((msg for msg in messages if msg), None)
+        message = fallback or "Dimensional export completed."
 
-    fallback = next((msg for msg in messages if msg), None)
-    return True, fallback or "Dimensional export completed."
+    return True, message, produced
 
 
 def _max_slot(areas: dict[int, float], tensile: TensileTest) -> int:
@@ -1335,29 +1383,42 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
         )
 
-        success, message = _run_dimensional_export(
-            uvc_path, original_dir=original_dir, preferred_dir=preferred_path
+        success, message, produced_paths = _run_dimensional_export(
+            uvc_path,
+            original_dir=original_dir,
+            preferred_dir=preferred_path,
+            modes=("dimensional",),
         )
 
         plots: list = []
         records: dict[int, pd.DataFrame] | None = None
         slice_cols: list[str] = []
-        gpdsr_path = export_path.with_name(
+        expected_gpdsr_path = export_path.with_name(
             f"{export_path.stem}_gpdsr{export_path.suffix}"
         )
-        export_dir_data: dict[str, str] | None = None
+        export_dir_data: dict[str, object] | None = None
         summary_style = {"display": "none"}
 
-        if export_path.exists():
+        dimensional_path = produced_paths.get("dimensional", export_path)
+
+        if success:
             export_dir_data = {
                 "directory": str(export_path.parent),
-                "output": str(export_path),
-                "gpdsr": str(gpdsr_path),
+                "output": str(dimensional_path),
+                "gpdsr": str(
+                    produced_paths.get("gpdsr", expected_gpdsr_path)
+                ),
+                "uvc_path": str(uvc_path),
+                "original_dir": str(original_dir) if original_dir else None,
+                "preferred_dir": str(preferred_path) if preferred_path else None,
+                "exports": {
+                    mode: str(path) for mode, path in produced_paths.items()
+                },
             }
 
-        if success and export_path.exists():
+        if success and dimensional_path.exists():
             try:
-                records, slice_cols = parse_dimensional_export(export_path)
+                records, slice_cols = parse_dimensional_export(dimensional_path)
             except Exception as exc:
                 plots = [
                     dbc.Alert(
@@ -1370,9 +1431,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 plots = _build_dimensional_plot_children(records, slice_cols)
                 if records:
                     summary_style = {"display": "block"}
-
-        if not success:
-            export_dir_data = None
 
         return (
             message,
@@ -1416,6 +1474,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     @app.callback(
         Output("dim-removed-summary-message", "children"),
         Output("dim-removed-summary-table", "children"),
+        Output("dim-export-directory", "data", allow_duplicate=True),
         Input("dim-generate-remove-list", "n_clicks"),
         State({"type": "dim-slice-store", "record": ALL}, "data"),
         State({"type": "dim-slice-store", "record": ALL}, "id"),
@@ -1432,7 +1491,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 color="warning",
                 className="mb-0",
             )
-            return message, None
+            return message, None, export_directory
 
         summary_rows = []
         removed_lists = removed_lists or [None] * len(store_ids)
@@ -1455,40 +1514,45 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 color="info",
                 className="mb-0",
             )
-            return message, None
+            return message, None, export_directory
 
         summary_df = pd.DataFrame(summary_rows).sort_values("Record").reset_index(drop=True)
 
-        export_info = export_directory
-        export_dir_path: Path | None = None
-        output_path: Path | None = None
-        gpdsr_path: Path | None = None
+        store_payload: dict[str, object] | None = None
+        exports_map: dict[str, str] = {}
+        if isinstance(export_directory, dict):
+            store_payload = {k: v for k, v in export_directory.items()}
+            existing_exports = store_payload.get("exports")
+            if isinstance(existing_exports, dict):
+                exports_map = {k: str(v) for k, v in existing_exports.items()}
+            store_payload["exports"] = exports_map
+        elif isinstance(export_directory, str):
+            store_payload = {"directory": export_directory, "exports": exports_map}
 
-        if isinstance(export_info, dict):
-            dir_value = export_info.get("directory")
-            if dir_value:
-                export_dir_path = Path(dir_value)
-            output_value = export_info.get("output")
-            if output_value:
-                output_path = Path(output_value)
-            gpdsr_value = export_info.get("gpdsr")
-            if gpdsr_value:
-                gpdsr_path = Path(gpdsr_value)
-            elif output_path is not None:
-                gpdsr_path = output_path.with_name(
-                    f"{output_path.stem}_gpdsr{output_path.suffix}"
-                )
-        elif isinstance(export_info, str):
-            export_dir_path = Path(export_info)
+        def _path_from_store(value: object | None) -> Path | None:
+            if isinstance(value, Path):
+                return value
+            if isinstance(value, str) and value.strip():
+                return Path(value)
+            return None
 
+        export_dir_path = _path_from_store(store_payload.get("directory")) if store_payload else None
+        output_path = _path_from_store(store_payload.get("output")) if store_payload else None
+        gpdsr_path = _path_from_store(store_payload.get("gpdsr")) if store_payload else None
+
+        expected_gpdsr: Path | None = None
+        if output_path is not None:
+            expected_gpdsr = output_path.with_name(
+                f"{output_path.stem}_gpdsr{output_path.suffix}"
+            )
+            if gpdsr_path is None:
+                gpdsr_path = expected_gpdsr
         if export_dir_path is None and output_path is not None:
             export_dir_path = output_path.parent
 
         if gpdsr_path is None and export_dir_path is not None:
             candidates = sorted(export_dir_path.glob("*_gpdsr*.txt"))
-            expected_name = None
-            if output_path is not None:
-                expected_name = f"{output_path.stem}_gpdsr{output_path.suffix}"
+            expected_name = expected_gpdsr.name if expected_gpdsr is not None else None
             if expected_name:
                 for candidate in candidates:
                     if candidate.name == expected_name:
@@ -1497,26 +1561,83 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             if gpdsr_path is None and len(candidates) == 1:
                 gpdsr_path = candidates[0]
 
+        if store_payload is not None:
+            if gpdsr_path is not None:
+                store_payload["gpdsr"] = str(gpdsr_path)
+                if gpdsr_path.exists():
+                    exports_map.setdefault("gpdsr", str(gpdsr_path))
+            elif expected_gpdsr is not None and "gpdsr" not in store_payload:
+                store_payload["gpdsr"] = str(expected_gpdsr)
         gpdsr_alerts: list = []
         slot_lookup: dict[int, int] = {}
 
-        if gpdsr_path is None:
-            if export_dir_path is not None:
+        def _append_reexport_alert(message: str, success: bool, produced_gpdsr: bool) -> None:
+            color = "success" if success and produced_gpdsr else ("warning" if success else "danger")
+            gpdsr_alerts.append(
+                dbc.Alert(
+                    message,
+                    color=color,
+                    className="mb-2",
+                )
+            )
+
+        needs_gpdsr = gpdsr_path is None or not gpdsr_path.exists()
+        if needs_gpdsr and store_payload is not None:
+            uvc_source = _path_from_store(store_payload.get("uvc_path"))
+            original_source = _path_from_store(store_payload.get("original_dir"))
+            preferred_source = _path_from_store(store_payload.get("preferred_dir"))
+            if preferred_source is None:
+                preferred_source = export_dir_path
+            if uvc_source is not None:
+                success, export_message, produced = _run_dimensional_export(
+                    uvc_source,
+                    original_dir=original_source,
+                    preferred_dir=preferred_source,
+                    modes=("gpdsr",),
+                )
+                produced_gpdsr = "gpdsr" in produced
+                _append_reexport_alert(export_message, success, produced_gpdsr)
+                if success and produced_gpdsr:
+                    gpdsr_path = produced["gpdsr"]
+                    exports_map["gpdsr"] = str(gpdsr_path)
+                    if store_payload is not None:
+                        store_payload["gpdsr"] = str(gpdsr_path)
+                needs_gpdsr = gpdsr_path is None or not (gpdsr_path and gpdsr_path.exists())
+            else:
                 gpdsr_alerts.append(
                     dbc.Alert(
-                        "Slot numbers could not be determined because the GPDSR file was not located.",
+                        "GPDSR file could not be regenerated because the UVC file location is unavailable.",
                         color="warning",
                         className="mb-2",
                     )
                 )
-        elif not gpdsr_path.exists():
+        elif needs_gpdsr and store_payload is None:
             gpdsr_alerts.append(
                 dbc.Alert(
-                    f"GPDSR file '{gpdsr_path}' was not found. Slot numbers will be omitted.",
+                    "GPDSR file information is unavailable. Slot numbers may be incomplete.",
                     color="warning",
                     className="mb-2",
                 )
             )
+
+        if needs_gpdsr:
+            if gpdsr_path is None:
+                if export_dir_path is not None:
+                    gpdsr_alerts.append(
+                        dbc.Alert(
+                            "Slot numbers could not be determined because the GPDSR file was not located.",
+                            color="warning",
+                            className="mb-2",
+                        )
+                    )
+            elif not gpdsr_path.exists():
+                gpdsr_alerts.append(
+                    dbc.Alert(
+                        f"GPDSR file '{gpdsr_path}' was not found. Slot numbers will be omitted.",
+                        color="warning",
+                        className="mb-2",
+                    )
+                )
         else:
             try:
                 gpdsr_df, deduped_slots = _parse_gpdsr_mapping(gpdsr_path)
@@ -1597,7 +1718,13 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         alerts.append(csv_message)
 
-        return html.Div(alerts), dbc.Card(dbc.CardBody(table), className="shadow-sm")
+        updated_store = store_payload if store_payload is not None else export_directory
+
+        return (
+            html.Div(alerts),
+            dbc.Card(dbc.CardBody(table), className="shadow-sm"),
+            updated_store,
+        )
 
     # ═══════════ CALLBACKS ═══════════
     # Upload status colour + caption
