@@ -535,13 +535,13 @@ def _resolve_export_target(
     return output_file, output_parent
 
 
-def _run_dimensional_export(
+def _run_uvwin_export(
     uvc_path: Path,
     original_dir: Path | None = None,
     preferred_dir: Path | None = None,
     modes: tuple[str, ...] | list[str] | None = None,
 ) -> tuple[bool, str, dict[str, Path]]:
-    """Invoke UvWin4 to export dimensional data for the provided UVC file.
+    """Invoke UvWin4 to export data for the provided UVC file.
 
     Parameters
     ----------
@@ -551,14 +551,14 @@ def _run_dimensional_export(
         Optional directories used to resolve the export destination.
     modes:
         Iterable of export modes to request from UvWin. Supported values are
-        ``"dimensional"`` and ``"gpdsr"``. When ``None`` both exports are
-        generated.
+        ``"dimensional"``, ``"gpdsr"``, and ``"tensile"``. When ``None`` both
+        dimensional and GPDSR exports are generated.
     """
 
     if platform.system() != "Windows":
         return (
             False,
-            "Dimensional export is only available on Windows installations.",
+            "UvWin exports are only available on Windows installations.",
             {},
         )
 
@@ -572,6 +572,9 @@ def _run_dimensional_export(
 
     gpdsr_output = output_file.with_name(
         f"{output_file.stem}_gpdsr{output_file.suffix}"
+    )
+    tensile_output = output_file.with_name(
+        f"{uvc_path.stem}_tensile{output_file.suffix}"
     )
 
     try:
@@ -587,6 +590,7 @@ def _run_dimensional_export(
     available_exports: dict[str, Path] = {
         "dimensional": output_file,
         "gpdsr": gpdsr_output,
+        "tensile": tensile_output,
     }
 
     if modes is None:
@@ -611,7 +615,7 @@ def _run_dimensional_export(
         export_abs = export_path.resolve()
 
         print(
-            "Dimensional export debug - UVC path: "
+            "UvWin export debug - UVC path: "
             f"{uvc_abs}, export type: {export_name}, export path: {export_abs}"
         )
 
@@ -659,7 +663,7 @@ def _run_dimensional_export(
             message = f"Export complete. Outputs saved to: {produced_text}"
     else:
         fallback = next((msg for msg in messages if msg), None)
-        message = fallback or "Dimensional export completed."
+        message = fallback or "Export completed."
 
     return True, message, produced
 
@@ -1255,6 +1259,66 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         style={"maxWidth": "1100px"},
     )
 
+    ten_clean_layout = dbc.Container(
+        [
+            _header(),
+            dbc.Card(
+                dbc.CardBody(
+                    [
+                        html.H4("Upload Tensile UVC File", className="card-title"),
+                        html.P(
+                            "Provide the absolute export directory and a .uvc file to run the UvWin tensile export.",
+                            className="text-muted",
+                        ),
+                        html.Div(
+                            [
+                                dbc.Label("Export directory", html_for="ten-export-dir"),
+                                dbc.Input(
+                                    id="ten-export-dir",
+                                    type="text",
+                                    placeholder="e.g. C:/Data/Exports",
+                                    required=True,
+                                ),
+                                dbc.FormText(
+                                    "Tensile force-curve text files will be saved to this folder with '_tensile' appended to the filename.",
+                                ),
+                            ],
+                            className="mb-3",
+                        ),
+                        dcc.Upload(
+                            id="upload-ten-cleaning",
+                            accept=".uvc",
+                            multiple=False,
+                            children=html.Div(
+                                [
+                                    "Drag and drop or ",
+                                    html.A("browse", className="fw-semibold"),
+                                    " for a .uvc file",
+                                ],
+                                className="py-4",
+                            ),
+                            style={
+                                "width": "100%",
+                                "height": "120px",
+                                "lineHeight": "120px",
+                                "borderWidth": "2px",
+                                "borderStyle": "dashed",
+                                "borderRadius": "10px",
+                                "textAlign": "center",
+                                "backgroundColor": "#fafafa",
+                            },
+                        ),
+                        dbc.Alert(id="ten-cleaning-alert", is_open=False, className="mt-3"),
+                        html.Div(id="ten-cleaning-result", className="mt-4"),
+                    ]
+                ),
+                className="shadow-sm",
+            ),
+        ],
+        fluid=True,
+        style={"maxWidth": "1100px"},
+    )
+
     landing_intro = dbc.Card(
         dbc.CardBody(
             [
@@ -1343,6 +1407,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             return analysis_layout
         if pathname == "/dimensional-cleaning":
             return dim_clean_layout
+        if pathname == "/tensile-cleaning":
+            return ten_clean_layout
         return landing_layout
 
     @app.callback(
@@ -1354,6 +1420,16 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if not n_clicks:
             raise PreventUpdate
         return "/dimensional-cleaning"
+
+    @app.callback(
+        Output("url", "pathname", allow_duplicate=True),
+        Input("btn-landing-ten-cleaning", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _go_ten_cleaning(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return "/tensile-cleaning"
 
     @app.callback(Output("cleaning-subbuttons", "style"), Input("btn-landing-cleaning", "n_clicks"))
     def _toggle_cleaning_subbuttons(n_clicks):
@@ -1389,7 +1465,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
         )
 
-        success, message, produced_paths = _run_dimensional_export(
+        success, message, produced_paths = _run_uvwin_export(
             uvc_path,
             original_dir=original_dir,
             preferred_dir=preferred_path,
@@ -1445,6 +1521,65 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             plots,
             export_dir_data,
             summary_style,
+        )
+
+    @app.callback(
+        Output("ten-cleaning-alert", "children"),
+        Output("ten-cleaning-alert", "color"),
+        Output("ten-cleaning-alert", "is_open"),
+        Output("ten-cleaning-result", "children"),
+        Input("upload-ten-cleaning", "contents"),
+        State("upload-ten-cleaning", "filename"),
+        State("ten-export-dir", "value"),
+        prevent_initial_call=True,
+    )
+    def _process_tensile_cleaning(contents, filename, preferred_dir):
+        if not contents or not filename:
+            raise PreventUpdate
+
+        try:
+            preferred_path = _parse_export_directory(preferred_dir)
+        except ValueError as exc:
+            return str(exc), "danger", True, []
+
+        raw = _b64_to_bytes(contents)
+        uvc_path, original_dir = _store_uvc_file(raw, filename)
+
+        export_path, _ = _resolve_export_target(
+            uvc_path, original_dir=original_dir, preferred_dir=preferred_path
+        )
+        expected_tensile_path = export_path.with_name(
+            f"{uvc_path.stem}_tensile{export_path.suffix}"
+        )
+
+        success, message, produced_paths = _run_uvwin_export(
+            uvc_path,
+            original_dir=original_dir,
+            preferred_dir=preferred_path,
+            modes=("tensile",),
+        )
+
+        output_path = produced_paths.get("tensile", expected_tensile_path)
+
+        result_children: list = []
+        if success:
+            result_children = [
+                html.H5("Tensile export output", className="mb-2"),
+                html.P(
+                    [
+                        "Force-curve data saved to ",
+                        html.Code(str(output_path)),
+                        ".",
+                    ],
+                    className="mb-0",
+                ),
+            ]
+
+        return (
+            message,
+            ("success" if success else "danger"),
+            True,
+            result_children,
         )
 
     @app.callback(
@@ -1614,7 +1749,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             if preferred_source is None:
                 preferred_source = export_dir_path
             if uvc_source is not None:
-                success, export_message, produced = _run_dimensional_export(
+                success, export_message, produced = _run_uvwin_export(
                     uvc_source,
                     original_dir=original_source,
                     preferred_dir=preferred_source,
