@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import platform
 import re
 import subprocess
@@ -213,14 +214,36 @@ def _parse_tensile_ascii(path: Path) -> pd.DataFrame:
 
 
 def _build_tensile_force_figure(df: pd.DataFrame) -> go.Figure:
-    """Create a lean force–strain figure for each Slot/Record combination."""
+    """Create lean force–strain subplots for each Slot/Record combination."""
 
-    fig = go.Figure()
-    grouped = df.sort_values(["Slot", "Record", "Index"]).groupby(
-        ["Slot", "Record"], sort=True
+    grouped = list(
+        df.sort_values(["Slot", "Record", "Index"]).groupby(["Slot", "Record"], sort=True)
     )
 
-    for (slot, record), grp in grouped:
+    if not grouped:
+        fig = go.Figure()
+        fig.update_layout(template="simple_white")
+        fig.update_xaxes(title="Strain (%)")
+        fig.update_yaxes(title="Force (N)")
+        return fig
+
+    n_curves = len(grouped)
+    n_cols = 5
+    n_rows = math.ceil(n_curves / n_cols)
+
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        shared_yaxes=True,
+        subplot_titles=[
+            f"Slot {slot} · Record {record}" for (slot, record), _ in grouped
+        ]
+        + ["" for _ in range(n_rows * n_cols - n_curves)],
+    )
+
+    for idx, ((slot, record), grp) in enumerate(grouped):
+        row = idx // n_cols + 1
+        col = idx % n_cols + 1
         custom = np.stack(
             (grp["Index"].to_numpy(), grp["Time_s"].to_numpy(), grp["Position_um"].to_numpy()),
             axis=-1,
@@ -230,25 +253,32 @@ def _build_tensile_force_figure(df: pd.DataFrame) -> go.Figure:
                 x=grp["Strain_pct"],
                 y=grp["Force_N"],
                 mode="lines",
-                name=f"Slot {slot} · Record {record}",
                 line={"width": 1.4},
+                name=f"Slot {slot} · Record {record}",
+                showlegend=False,
                 customdata=custom,
                 hovertemplate=(
                     "Index: %{customdata[0]}<br>Strain: %{x:.3f}%<br>"
                     "Force: %{y:.3f} N<br>Time: %{customdata[1]:.3f} s<br>"
                     "Position: %{customdata[2]:.3f} µm<extra></extra>"
                 ),
-            )
+            ),
+            row=row,
+            col=col,
         )
+
+    # Apply axis titles to the outer plots only for clarity.
+    for col in range(1, min(n_cols, n_curves) + 1):
+        fig.update_xaxes(title_text="Strain (%)", row=n_rows, col=col)
+    for row in range(1, n_rows + 1):
+        fig.update_yaxes(title_text="Force (N)", row=row, col=1)
 
     fig.update_layout(
         template="simple_white",
-        height=450,
-        legend_title_text="Curve",
-        margin={"l": 60, "r": 20, "t": 40, "b": 60},
+        height=280 * n_rows,
+        margin={"l": 60, "r": 20, "t": 60, "b": 60},
     )
-    fig.update_xaxes(title="Strain (%)")
-    fig.update_yaxes(title="Force (N)")
+
     return fig
 
 
