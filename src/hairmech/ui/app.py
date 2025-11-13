@@ -309,57 +309,38 @@ def _remove_initial_force_noise(
         cleaned_grp = grp
         values = grp["Force_N"].to_numpy()
 
-        if len(values) >= 3:
-            baseline_window = min(20, max(3, len(values) // 3))
+        if len(values) >= 6:
+            baseline_window = min(25, max(5, len(values) // 4))
             baseline_vals = values[:baseline_window]
             baseline = float(np.median(baseline_vals))
-            noise_level = float(np.std(baseline_vals))
-            if not math.isfinite(noise_level) or noise_level == 0:
-                noise_level = float(np.median(np.abs(baseline_vals - baseline))) * 1.4826
-            if not math.isfinite(noise_level) or noise_level == 0:
-                noise_level = 0.0
+            mad = float(np.median(np.abs(baseline_vals - baseline)))
+            spread = mad * 1.4826  # Convert MAD to an analogue of standard deviation
+            if not math.isfinite(spread) or spread == 0:
+                spread = float(np.std(baseline_vals))
+            if not math.isfinite(spread) or spread == 0:
+                spread = 0.0
 
-            strain = grp["Strain_pct"].to_numpy()
-            time = grp["Time_s"].to_numpy()
+            overall_range = float(np.max(values) - np.min(values))
+            threshold = max(spread * 6, overall_range * 0.01, 0.02)
 
-            if np.any(np.diff(strain) > 1e-9):
-                axis = strain
-            elif np.any(np.diff(time) > 1e-9):
-                axis = time
-            else:
-                axis = grp["Index"].to_numpy(dtype=float)
-
-            diffs = np.diff(axis)
-            diffs[diffs == 0] = 1e-9
-            slopes = np.zeros_like(values, dtype=float)
-            slopes[1:] = np.diff(values) / diffs
-
-            slope_threshold = 1.0
-            confirm = max(3, min(8, len(values) // 5 + 1))
-            amplitude_threshold = max(0.05, noise_level * 5)
-            run_start = None
+            confirm = max(3, min(6, len(values) // 10 + 2))
+            candidate = None
             consecutive = 0
-            saw_low_slope = False
 
-            for idx in range(1, len(values)):
-                if slopes[idx] > slope_threshold:
-                    if consecutive == 0:
-                        run_start = idx
+            for idx, value in enumerate(values):
+                if value > baseline and abs(value - baseline) > threshold:
+                    if candidate is None:
+                        candidate = idx
                     consecutive += 1
-                    if (
-                        consecutive >= confirm
-                        and saw_low_slope
-                        and values[idx] > baseline + amplitude_threshold
-                    ):
-                        start_idx = run_start + 1 if run_start is not None else None
-                        if start_idx is not None and start_idx < len(values):
+                    if consecutive >= confirm:
+                        start_idx = candidate
+                        if start_idx > 0 and start_idx < len(values) - confirm:
                             cleaned_grp = grp.iloc[start_idx:].copy()
                             trimmed = start_idx
                         break
                 else:
+                    candidate = None
                     consecutive = 0
-                    run_start = None
-                    saw_low_slope = True
 
         trimmed_counts[(int(slot), int(record))] = trimmed
         cleaned_groups.append(cleaned_grp)
