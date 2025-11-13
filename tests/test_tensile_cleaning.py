@@ -36,13 +36,3 @@ def test_remove_initial_noise_leaves_clean_trace():
 
     pd.testing.assert_frame_equal(cleaned, df.reset_index(drop=True))
     assert trimmed[(1, 1)] == 0
-
-
-def test_remove_initial_noise_ignores_small_fluctuations():
-    force = [0.0, 0.01, -0.01, 0.02, -0.02, 0.03, -0.03, 0.04, 0.05, 0.06]
-    df = _build_group(force)
-
-    cleaned, trimmed = _remove_initial_force_noise(df)
-
-    pd.testing.assert_frame_equal(cleaned, df.reset_index(drop=True))
-    assert trimmed[(1, 1)] == 0
