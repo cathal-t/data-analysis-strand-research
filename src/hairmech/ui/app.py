@@ -282,76 +282,6 @@ def _build_tensile_force_figure(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _remove_initial_force_noise(
-    df: pd.DataFrame,
-) -> tuple[pd.DataFrame, dict[tuple[int, int], int]]:
-    """Trim flat noise at the start of each tensile trace.
-
-    The Dia-Stron tensile export occasionally includes a brief flat segment
-    before the fibre is tensioned.  The load cell is extremely sensitive, so
-    the segment typically appears as near-constant force values around the
-    baseline.  We detect the point at which the force rises consistently above
-    that baseline and drop the preceding measurements.
-    """
-
-    if df.empty:
-        return df, {}
-
-    cleaned_groups: list[pd.DataFrame] = []
-    trimmed_counts: dict[tuple[int, int], int] = {}
-
-    grouped = df.sort_values(["Slot", "Record", "Index"]).groupby(
-        ["Slot", "Record"], sort=True
-    )
-
-    for (slot, record), grp in grouped:
-        trimmed = 0
-        cleaned_grp = grp
-        values = grp["Force_N"].to_numpy()
-
-        if len(values) >= 6:
-            baseline_window = min(25, max(5, len(values) // 4))
-            baseline_vals = values[:baseline_window]
-            baseline = float(np.median(baseline_vals))
-            mad = float(np.median(np.abs(baseline_vals - baseline)))
-            spread = mad * 1.4826  # Convert MAD to an analogue of standard deviation
-            if not math.isfinite(spread) or spread == 0:
-                spread = float(np.std(baseline_vals))
-            if not math.isfinite(spread) or spread == 0:
-                spread = 0.0
-
-            overall_range = float(np.max(values) - np.min(values))
-            threshold = max(spread * 6, overall_range * 0.01, 0.02)
-
-            confirm = max(3, min(6, len(values) // 10 + 2))
-            candidate = None
-            consecutive = 0
-
-            for idx, value in enumerate(values):
-                if value > baseline and abs(value - baseline) > threshold:
-                    if candidate is None:
-                        candidate = idx
-                    consecutive += 1
-                    if consecutive >= confirm:
-                        start_idx = candidate
-                        if start_idx > 0 and start_idx < len(values) - confirm:
-                            cleaned_grp = grp.iloc[start_idx:].copy()
-                            trimmed = start_idx
-                        break
-                else:
-                    candidate = None
-                    consecutive = 0
-
-        trimmed_counts[(int(slot), int(record))] = trimmed
-        cleaned_groups.append(cleaned_grp)
-
-    if not cleaned_groups:
-        return df, trimmed_counts
-
-    cleaned_df = pd.concat(cleaned_groups).reset_index(drop=True)
-    return cleaned_df, trimmed_counts
-
-
 def _parse_removed_slices_csv(raw: bytes) -> list[dict[str, object]]:
     try:
         df = pd.read_csv(BytesIO(raw))
@@ -1837,55 +1767,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             )
                         )
                     else:
-                        cleaned_df, trimmed_counts = _remove_initial_force_noise(
-                            tensile_df
-                        )
-
                         result_children.append(
                             dcc.Graph(
                                 figure=_build_tensile_force_figure(tensile_df),
-                                config={"displaylogo": False},
-                            )
-                        )
-
-                        summary_items = [
-                            html.Li(
-                                f"Slot {slot} · Record {record}: {count} point(s) removed"
-                            )
-                            for (slot, record), count in sorted(trimmed_counts.items())
-                            if count
-                        ]
-
-                        result_children.extend(
-                            [
-                                html.Hr(className="my-4"),
-                                html.H5(
-                                    "Noise-trimmed force curves",
-                                    className="mb-2",
-                                ),
-                                (
-                                    html.Div(
-                                        [
-                                            html.P(
-                                                "Leading noise detected and removed from the following traces:",
-                                                className="mb-1",
-                                            ),
-                                            html.Ul(summary_items),
-                                        ]
-                                    )
-                                    if summary_items
-                                    else dbc.Alert(
-                                        "No leading noise detected in the tensile traces.",
-                                        color="info",
-                                        className="mb-0",
-                                    )
-                                ),
-                            ]
-                        )
-
-                        result_children.append(
-                            dcc.Graph(
-                                figure=_build_tensile_force_figure(cleaned_df),
                                 config={"displaylogo": False},
                             )
                         )
