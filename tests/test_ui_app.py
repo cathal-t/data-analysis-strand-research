@@ -10,6 +10,34 @@ import pytest
 from hairmech.ui import app
 
 
+def test_trim_gmf_pivot_resets_origin_and_trims_rows():
+    export_df = pd.DataFrame(
+        {
+            "Record": [1, 1, 1, 1, 2, 2, 2, 2],
+            "% Strain": [0.02, 0.05, 0.08, 0.12, 0.0, 5.0, 9.0, 12.0],
+            "gmf": [5.0, 3.0, 4.0, 6.0, 10.0, 8.0, 9.0, 7.0],
+        }
+    )
+    export_df = export_df.sort_values(["Record", "% Strain"]).reset_index(drop=True)
+
+    trimmed = app._trim_gmf_pivot(export_df)
+
+    expected = pd.DataFrame(
+        {
+            "Record": [1, 1, 1, 2, 2, 2],
+            "% Strain": [0.0, 0.03, 0.07, 0.0, 4.0, 7.0],
+            "gmf": [3.0, 4.0, 6.0, 8.0, 9.0, 7.0],
+        }
+    )
+
+    pd.testing.assert_frame_equal(
+        trimmed.reset_index(drop=True),
+        expected,
+        check_exact=False,
+        atol=1e-12,
+    )
+
+
 def test_infer_original_dir_windows_path():
     filename = (
         "G:\\Other computers\\Dia-Stron Machine Laptop\\Dia-Stron Lab Data\\"

@@ -213,6 +213,75 @@ def _parse_tensile_ascii(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _trim_gmf_pivot(export_df: pd.DataFrame) -> pd.DataFrame:
+    """Trim early strain rows and re-zero each record around a GMF pivot."""
+
+    if export_df.empty:
+        return export_df.copy()
+
+    trimmed_groups: list[pd.DataFrame] = []
+    strain_tol = 1e-9
+    gmf_tol = 1e-12
+
+    for _, group in export_df.groupby("Record", sort=False):
+        working = group.reset_index(drop=True).copy()
+        if working.empty:
+            continue
+
+        strain_series = pd.to_numeric(working["% Strain"], errors="coerce")
+        gmf_series = pd.to_numeric(working["gmf"], errors="coerce")
+
+        valid_mask = strain_series.notna() & gmf_series.notna()
+        if not valid_mask.all():
+            working = working.loc[valid_mask].reset_index(drop=True)
+            strain_series = strain_series.loc[valid_mask].reset_index(drop=True)
+            gmf_series = gmf_series.loc[valid_mask].reset_index(drop=True)
+
+        if working.empty:
+            continue
+
+        scale = 100.0 if strain_series.max(skipna=True) > 1.0 + strain_tol else 1.0
+        strain_fraction = strain_series / scale
+        window_indices = [
+            idx for idx, value in enumerate(strain_fraction) if value <= 0.10 + strain_tol
+        ]
+
+        if not window_indices:
+            trimmed_groups.append(working)
+            continue
+
+        gmf_window = gmf_series.iloc[window_indices].to_numpy(dtype=float)
+        future_mins = np.empty(len(gmf_window), dtype=float)
+        future_mins[-1] = math.inf
+        for pos in range(len(gmf_window) - 2, -1, -1):
+            future_mins[pos] = min(future_mins[pos + 1], gmf_window[pos + 1])
+
+        pivot_position: int | None = None
+        for offset, group_index in enumerate(window_indices):
+            if gmf_window[offset] < future_mins[offset] - gmf_tol:
+                pivot_position = group_index
+                break
+
+        if pivot_position is None:
+            trimmed_groups.append(working)
+            continue
+
+        pivot_strain = working.loc[pivot_position, "% Strain"]
+        trimmed = working.iloc[pivot_position:].copy()
+        trimmed.loc[:, "% Strain"] = trimmed["% Strain"] - pivot_strain
+        trimmed_groups.append(trimmed)
+
+    if not trimmed_groups:
+        return export_df.iloc[0:0].copy()
+
+    result = pd.concat(trimmed_groups, ignore_index=True)
+    try:
+        result["Record"] = result["Record"].astype(export_df["Record"].dtype)
+    except Exception:  # pragma: no cover - fallback to numeric type
+        result["Record"] = pd.to_numeric(result["Record"], errors="coerce")
+    return result
+
+
 def _build_tensile_force_figure(df: pd.DataFrame) -> go.Figure:
     """Create lean force–strain subplots for each Slot/Record combination."""
 
@@ -1986,6 +2055,18 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             export_df = export_df.drop(columns=["_Index"])
         else:
             export_df = export_df.sort_values(["Record", "% Strain"])
+
+        export_df = _trim_gmf_pivot(export_df)
+
+        if export_df.empty:
+            return (
+                "No valid tensile rows remain after trimming initial strain data.",
+                "warning",
+                True,
+                {},
+            )
+
+        export_df = export_df.sort_values(["Record", "% Strain"]).reset_index(drop=True)
 
         header_lines = ["Tensile Data Report Version: 1.0"]
         if uvc_source:
