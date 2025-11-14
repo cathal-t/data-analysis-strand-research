@@ -1481,6 +1481,20 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         ),
                         dbc.Alert(id="ten-cleaning-alert", is_open=False, className="mt-3"),
                         html.Div(id="ten-cleaning-result", className="mt-4"),
+                        dcc.Store(id="ten-cleaning-export"),
+                        dbc.Button(
+                            "Generate Tensile_Data.txt",
+                            id="ten-cleaning-generate",
+                            color="primary",
+                            className="mt-3",
+                            disabled=True,
+                        ),
+                        dbc.Alert(
+                            id="ten-cleaning-export-alert",
+                            is_open=False,
+                            className="mt-3",
+                            style={"display": "none"},
+                        ),
                     ]
                 ),
                 className="shadow-sm",
@@ -1699,6 +1713,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("ten-cleaning-alert", "color"),
         Output("ten-cleaning-alert", "is_open"),
         Output("ten-cleaning-result", "children"),
+        Output("ten-cleaning-export", "data"),
+        Output("ten-cleaning-generate", "disabled"),
+        Output("ten-cleaning-export-alert", "children", allow_duplicate=True),
+        Output("ten-cleaning-export-alert", "color", allow_duplicate=True),
+        Output("ten-cleaning-export-alert", "is_open", allow_duplicate=True),
+        Output("ten-cleaning-export-alert", "style", allow_duplicate=True),
         Input("upload-ten-cleaning", "contents"),
         State("upload-ten-cleaning", "filename"),
         State("ten-export-dir", "value"),
@@ -1711,7 +1731,18 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         try:
             preferred_path = _parse_export_directory(preferred_dir)
         except ValueError as exc:
-            return str(exc), "danger", True, []
+            return (
+                str(exc),
+                "danger",
+                True,
+                [],
+                None,
+                True,
+                None,
+                "info",
+                False,
+                {"display": "none"},
+            )
 
         raw = _b64_to_bytes(contents)
         uvc_path, original_dir = _store_uvc_file(raw, filename)
@@ -1733,6 +1764,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         output_path = produced_paths.get("tensile", expected_tensile_path)
 
         result_children: list = []
+        store_payload: dict[str, object] | None = None
         if success:
             result_children = [
                 html.H5("Tensile export output", className="mb-2"),
@@ -1767,6 +1799,48 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             )
                         )
                     else:
+                        store_rows: list[dict[str, object]] = []
+                        for row in tensile_df[
+                            ["Slot", "Record", "Index", "Strain_pct", "Force_N"]
+                        ].to_dict("records"):
+                            try:
+                                slot_val = int(row.get("Slot"))
+                            except (TypeError, ValueError):
+                                continue
+                            try:
+                                record_val = int(row.get("Record"))
+                            except (TypeError, ValueError):
+                                record_val = None
+                            try:
+                                index_val = int(row.get("Index"))
+                            except (TypeError, ValueError):
+                                index_val = None
+                            try:
+                                strain_val = float(row.get("Strain_pct"))
+                            except (TypeError, ValueError):
+                                strain_val = None
+                            try:
+                                force_val = float(row.get("Force_N"))
+                            except (TypeError, ValueError):
+                                force_val = None
+
+                            store_rows.append(
+                                {
+                                    "Slot": slot_val,
+                                    "Record": record_val,
+                                    "Index": index_val,
+                                    "Strain_pct": strain_val,
+                                    "Force_N": force_val,
+                                }
+                            )
+
+                        if store_rows:
+                            store_payload = {
+                                "export_directory": str(output_path.parent),
+                                "tensile_path": str(output_path),
+                                "uvc_path": str(uvc_path),
+                                "data": store_rows,
+                            }
                         result_children.append(
                             dcc.Graph(
                                 figure=_build_tensile_force_figure(tensile_df),
@@ -1782,11 +1856,165 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     )
                 )
 
+        button_disabled = store_payload is None
+
         return (
             message,
             ("success" if success else "danger"),
             True,
             result_children,
+            store_payload,
+            button_disabled,
+            None,
+            "info",
+            False,
+            {"display": "none"},
+        )
+
+    @app.callback(
+        Output("ten-cleaning-export-alert", "children", allow_duplicate=True),
+        Output("ten-cleaning-export-alert", "color", allow_duplicate=True),
+        Output("ten-cleaning-export-alert", "is_open", allow_duplicate=True),
+        Output("ten-cleaning-export-alert", "style", allow_duplicate=True),
+        Input("ten-cleaning-generate", "n_clicks"),
+        State("ten-cleaning-export", "data"),
+        prevent_initial_call=True,
+    )
+    def _generate_tensile_export(n_clicks, stored_payload):
+        if not n_clicks:
+            raise PreventUpdate
+
+        if not stored_payload or not stored_payload.get("data"):
+            return (
+                "No tensile data are available to export.",
+                "warning",
+                True,
+                {},
+            )
+
+        try:
+            df = pd.DataFrame(stored_payload.get("data", []))
+        except Exception as exc:  # pragma: no cover - defensive
+            return (
+                f"Unable to reconstruct tensile data: {exc}",
+                "danger",
+                True,
+                {},
+            )
+
+        required_cols = {"Slot", "Strain_pct", "Force_N"}
+        missing = required_cols - set(df.columns)
+        if missing:
+            missing_list = ", ".join(sorted(missing))
+            return (
+                f"Tensile data are missing required fields: {missing_list}.",
+                "danger",
+                True,
+                {},
+            )
+
+        if {"Slot", "Index"}.issubset(df.columns):
+            df = df.sort_values(["Slot", "Index"]).reset_index(drop=True)
+        elif {"Slot", "Record", "Index"}.issubset(df.columns):
+            df = df.sort_values(["Slot", "Record", "Index"]).reset_index(drop=True)
+
+        export_directory = stored_payload.get("export_directory")
+        if not export_directory:
+            return (
+                "Export directory information is unavailable.",
+                "danger",
+                True,
+                {},
+            )
+
+        export_dir_path = Path(export_directory)
+        try:
+            export_dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # pragma: no cover - defensive
+            return (
+                f"Unable to access export directory '{export_dir_path}': {exc}",
+                "danger",
+                True,
+                {},
+            )
+
+        output_path = export_dir_path / "Tensile_Data.txt"
+        uvc_source = stored_payload.get("uvc_path")
+
+        try:
+            record = pd.to_numeric(df["Slot"], errors="coerce")
+            strain = pd.to_numeric(df["Strain_pct"], errors="coerce")
+            force_n = pd.to_numeric(df["Force_N"], errors="coerce")
+        except Exception as exc:  # pragma: no cover - defensive
+            return (
+                f"Unable to normalise tensile data: {exc}",
+                "danger",
+                True,
+                {},
+            )
+
+        export_df = pd.DataFrame(
+            {
+                "Record": record,
+                "% Strain": strain,
+                "gmf": force_n / TensileTest.GF_TO_N,
+            }
+        )
+        export_df = export_df.dropna(subset=["Record", "% Strain", "gmf"])
+
+        if export_df.empty:
+            return (
+                "No valid tensile rows remain after processing.",
+                "warning",
+                True,
+                {},
+            )
+
+        try:
+            export_df["Record"] = export_df["Record"].round().astype(int)
+        except Exception as exc:  # pragma: no cover - defensive
+            return (
+                f"Unable to coerce slot identifiers: {exc}",
+                "danger",
+                True,
+                {},
+            )
+
+        if "Index" in df.columns:
+            export_df = export_df.assign(_Index=pd.to_numeric(df["Index"], errors="coerce"))
+            export_df = export_df.sort_values(["Record", "_Index"])
+            export_df = export_df.drop(columns=["_Index"])
+        else:
+            export_df = export_df.sort_values(["Record", "% Strain"])
+
+        header_lines = ["Tensile Data Report Version: 1.0"]
+        if uvc_source:
+            header_lines.append(f"Source File: {uvc_source}")
+        else:
+            header_lines.append("Source File:")
+
+        try:
+            with output_path.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write("\n".join(header_lines) + "\n")
+                export_df.to_csv(
+                    handle,
+                    sep="\t",
+                    index=False,
+                    lineterminator="\n",
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            return (
+                f"Unable to write Tensile_Data.txt: {exc}",
+                "danger",
+                True,
+                {},
+            )
+
+        return (
+            f"Tensile_Data.txt saved to {output_path}.",
+            "success",
+            True,
+            {},
         )
 
     @app.callback(
