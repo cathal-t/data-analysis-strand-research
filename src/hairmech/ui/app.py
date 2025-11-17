@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import math
 import platform
 import re
@@ -49,6 +50,8 @@ from ..tensile import TensileTest
 TICK = "✓"
 EMPTY = ""
 DEFAULT_RE = re.compile(r"Condition\s+\d+", re.I)
+
+logger = logging.getLogger(__name__)
 
 # ────────────── helper I/O ──────────────
 def _load_experiment(root: Path) -> Tuple[dict[int, float], TensileTest, List[Condition]]:
@@ -618,9 +621,10 @@ def _parse_gpdsr_mapping(gpdsr_path: Path) -> tuple[pd.DataFrame, list[int]]:
                 # correspond to a physical slot and should be ignored when building the
                 # Record→Slot mapping.
                 continue
-            raise ValueError(
-                f"Unable to determine Slot from description '{description}'"
+            logger.warning(
+                "Skipping GPDSR row with unrecognized description: %s", description
             )
+            continue
         row["Slot"] = int(slot_match.group(1))
 
         cycle_match = re.search(r"Cycle:\s*(\d+)", description)
