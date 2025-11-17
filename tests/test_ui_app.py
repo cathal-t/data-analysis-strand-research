@@ -125,6 +125,30 @@ def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
     assert deduped == [5]
 
 
+def test_parse_gpdsr_mapping_ignores_unmapped_descriptions(tmp_path, caplog):
+    gpdsr_path = tmp_path / "unmapped_gpdsr.txt"
+    gpdsr_path.write_text(
+        "\n".join(
+            [
+                "Summary Data Ver: 1.0",
+                "Source File: demo",
+                "Record\tSample\tDescription",
+                "1\t1\tSlot 5 Cycle: 1",
+                "2\t2\tNew Record",
+                "3\t3\tSlot 7",
+            ]
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        mapping, deduped = app._parse_gpdsr_mapping(gpdsr_path)
+
+    assert list(mapping["Record"]) == [1, 3]
+    assert list(mapping["Slot"]) == [5, 7]
+    assert deduped == []
+    assert any("unrecognized description" in msg for msg in caplog.messages)
+
+
 def test_parse_gpdsr_mapping_skips_tagged_rows(tmp_path):
     gpdsr_path = tmp_path / "tagged_gpdsr.txt"
     gpdsr_path.write_text(
