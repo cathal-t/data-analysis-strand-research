@@ -53,7 +53,21 @@ TICK = "✓"
 EMPTY = ""
 DEFAULT_RE = re.compile(r"Condition\s+\d+", re.I)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _set_log_level(enabled: bool) -> None:
+    level = logging.DEBUG if enabled else logging.INFO
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    for handler in root_logger.handlers:
+        handler.setLevel(level)
+    logger.setLevel(level)
 
 # ────────────── helper I/O ──────────────
 def _load_experiment(root: Path) -> Tuple[dict[int, float], TensileTest, List[Condition]]:
@@ -1752,6 +1766,28 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     "Select a workflow to get started. Additional modules will be available soon.",
                     className="text-muted",
                 ),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dbc.Checklist(
+                                id="debug-toggle",
+                                options=[{"label": " Enable debug logging", "value": "debug"}],
+                                value=[],
+                                switch=True,
+                                className="mb-0",
+                            ),
+                            width="auto",
+                        ),
+                        dbc.Col(
+                            html.Span(
+                                "Debug logging is off. Enable to print debug statements to the server console.",
+                                id="debug-toggle-status",
+                                className="text-muted",
+                            )
+                        ),
+                    ],
+                    className="align-items-center g-2",
+                ),
                 dbc.Stack(
                     [
                         dbc.Button(
@@ -1861,6 +1897,25 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         hidden = {"display": "none"}
         shown = {"display": "block"}
         return shown if n_clicks else hidden
+
+    @app.callback(
+        Output("debug-toggle-status", "children"),
+        Input("debug-toggle", "value"),
+        prevent_initial_call=True,
+    )
+    def _toggle_debug_logging(values):
+        enabled = "debug" in (values or [])
+        _set_log_level(enabled)
+        status = (
+            "Debug logging is on. Check the server console for detailed output."
+            if enabled
+            else "Debug logging is off. Enable to print debug statements to the server console."
+        )
+        if enabled:
+            logger.debug("Debug logging enabled via home page toggle.")
+        else:
+            logger.info("Debug logging disabled via home page toggle.")
+        return status
 
     @app.callback(
         Output("dim-cleaning-alert", "children"),
