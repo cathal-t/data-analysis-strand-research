@@ -1053,7 +1053,7 @@ def _make_dimensional_record_fig(
     fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
-    max_points = 1000
+    max_points = 100
     step = max(1, len(df) // max_points) if len(df) else 1
 
     values = df[cols].to_numpy(dtype=float, na_value=np.nan)
