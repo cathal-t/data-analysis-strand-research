@@ -1036,8 +1036,8 @@ def _make_dimensional_record_fig(
         fig.update_layout(title=f"Record {record_id}")
         return fig
 
-    fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
-    x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
+    fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols, shared_yaxes=True)
+    x_vals = df["N"].to_numpy() if "N" in df.columns else np.arange(1, len(df) + 1)
 
     values = df[cols].to_numpy(dtype=float, na_value=np.nan)
 
@@ -1061,7 +1061,7 @@ def _make_dimensional_record_fig(
         fig.add_trace(
             go.Scatter(
                 x=x_vals,
-                y=df[col],
+                y=df[col].to_numpy(),
                 mode="lines",
                 name=col,
                 showlegend=False,
@@ -1069,11 +1069,12 @@ def _make_dimensional_record_fig(
             row=1,
             col=idx,
         )
-        fig.update_xaxes(title_text="N", row=1, col=idx)
-        if y_range:
-            fig.update_yaxes(title_text="Value", row=1, col=idx, range=y_range)
-        else:
-            fig.update_yaxes(title_text="Value", row=1, col=idx)
+
+    fig.update_xaxes(title_text="N")
+    if y_range:
+        fig.update_yaxes(title_text="Value", range=y_range)
+    else:
+        fig.update_yaxes(title_text="Value")
 
     fig.update_layout(
         title=f"Record {record_id}",
