@@ -1,6 +1,6 @@
 # data-analysis-strand-research
 
-Hair-mechanics analysis & visualisation toolkit for Dia-Stron experiments.
+Data visualization and analysis toolkit for Dia-Stron tensile experiments.
 The package ingests exported dimensional and tensile `.txt` files, cleans
 slot metadata, computes summary metrics, and writes Excel/HTML reports. A
 Dash front-end mirrors the notebook workflow for interactive exploration.
