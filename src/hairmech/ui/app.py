@@ -16,6 +16,7 @@ Changes in this version
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import json
 import logging
 import math
@@ -1085,9 +1086,26 @@ def _make_dimensional_record_fig(
 
 
 def _fig_to_png_b64(
-    fig: go.Figure, *, height: int | None = None, width: int | None = None
+    fig: go.Figure,
+    *,
+    height: int | None = None,
+    width: int | None = None,
+    timeout_s: float = 15.0,
 ) -> str:
-    png_bytes = to_image(fig, format="png", height=height, width=width, scale=2)
+    """Render a figure to a base64 PNG string using Kaleido.
+
+    A timeout guard prevents the Dash callback from hanging indefinitely when
+    Kaleido stalls while generating the image. If the timeout is exceeded a
+    ``TimeoutError`` will be raised so callers can fall back to interactive
+    graphs.
+    """
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            to_image, fig, format="png", height=height, width=width, scale=2, engine="kaleido"
+        )
+        png_bytes = future.result(timeout=timeout_s)
+
     return base64.b64encode(png_bytes).decode("ascii")
 
 
@@ -1124,6 +1142,17 @@ def _render_plot_component(
 
         try:
             img_b64 = _fig_to_png_b64(fig, height=effective_height, width=width_px)
+        except concurrent.futures.TimeoutError:
+            logger.warning("Static plot rendering exceeded timeout; falling back to interactive graph.")
+            alert = dbc.Alert(
+                [
+                    html.Strong("Static rendering timed out. "),
+                    "Displaying the interactive graph instead. Try reducing the number of slices "
+                    "or reloading without the PNG toggle if the issue persists.",
+                ],
+                color="warning",
+                className="mb-2",
+            )
         except Exception:
             logger.exception("Falling back to interactive graph; static rendering failed.")
             alert = dbc.Alert(
