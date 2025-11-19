@@ -1,5 +1,4 @@
-# data-analysis-strand-research
-
+# Data Analysis Application for Strand Research
 Data visualization and analysis toolkit for Dia-Stron tensile experiments.
 The package ingests exported dimensional and tensile `.txt` files, cleans
 slot metadata, computes summary metrics, and writes Excel/HTML reports. A
