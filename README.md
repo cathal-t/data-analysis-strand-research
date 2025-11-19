@@ -16,26 +16,12 @@ an active Poetry shell or any environment with the project dependencies.
 
 ## CLI usage
 
-Run the full pipeline against an experiment folder containing
-`Dimensional_Data.txt`, `Tensile_Data.txt`, and `config.yml`:
-
-```bash
-hairmech run -i /path/to/experiment -o /path/to/results
-```
-
-Outputs include:
-
-- `metrics.xlsx` with per-slot measurements (UTS, break stress/strain,
-  elastic modulus, etc.).
-- `stats.xlsx` with wide-format statistics and control comparisons.
-- `overlay.html` and `violin_grid.html` Plotly exports visualising the
-  processed curves and distributions.
-
-Launch the interactive Dash UI (optional) to explore the same pipeline in a
+Launch the interactive Dash UI to explore the same pipeline in a
 browser:
 
 ```bash
-hairmech serve
+ poetry install
+ poetry run hairmech serve
 ```
 
 The UI lives at `http://127.0.0.1:8050` and provides upload controls plus
