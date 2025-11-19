@@ -7,7 +7,15 @@ Dash front-end mirrors the notebook workflow for interactive exploration.
 ## Installation
 
 ```bash
+# 1. Clone the repo and cd into it
+git clone https://github.com/cathal-t/data-analysis-strand-research.git
+cd data-analysis-strand-research
+
+# 2. Poetry install
 poetry install
+
+# 3. Launch 
+poetry run hairmech serve
 ```
 
 The package installs a `hairmech` console script. All commands below assume
@@ -19,7 +27,6 @@ Launch the interactive Dash UI to explore the same pipeline in a
 browser:
 
 ```bash
- poetry install
  poetry run hairmech serve
 ```
 
