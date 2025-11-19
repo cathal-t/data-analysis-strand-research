@@ -21,6 +21,33 @@ poetry run hairmech serve
 The package installs a `hairmech` console script. All commands below assume
 an active Poetry shell or any environment with the project dependencies.
 
+## Installation (Mac)
+
+```bash
+# 1. Install Homebrew (if you don’t have it)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Add Homebrew to your shell (zsh is the default in modern macOS)
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
+# 3. Install Python 3 (Homebrew will give you the latest 3.x)
+brew install python
+
+# 4. Install Poetry
+brew install poetry
+
+# 5. Clone the repo and cd into it
+git clone https://github.com/cathal-t/data-analysis-strand-research.git
+cd data-analysis-strand-research
+
+# 6. Poetry install
+poetry install
+
+# 7. Launch 
+poetry run hairmech serve
+```
+
 ## CLI usage
 
 Launch the interactive Dash UI to explore the same pipeline in a
