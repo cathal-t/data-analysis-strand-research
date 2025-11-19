@@ -1113,6 +1113,7 @@ def _render_plot_component(
         if isinstance(layout_height, (int, float)):
             effective_height = int(layout_height)
 
+    alert: html.Div | dbc.Alert | None = None
     if static_images:
         width_px = width
         if width_px is None:
@@ -1125,6 +1126,15 @@ def _render_plot_component(
             img_b64 = _fig_to_png_b64(fig, height=effective_height, width=width_px)
         except Exception:
             logger.exception("Falling back to interactive graph; static rendering failed.")
+            alert = dbc.Alert(
+                [
+                    html.Strong("Static rendering failed. "),
+                    "Displaying the interactive graph instead. "
+                    "Check Kaleido installation and configuration if PNG export is required.",
+                ],
+                color="warning",
+                className="mb-2",
+            )
         else:
             img_style = {"width": "100%", "maxWidth": f"{width_px}px"}
             if effective_height:
@@ -1140,12 +1150,17 @@ def _render_plot_component(
     if effective_height and "height" not in merged_style:
         merged_style["height"] = f"{effective_height}px"
 
-    return dcc.Graph(
+    graph_component = dcc.Graph(
         figure=fig,
         className=class_name,
         style=merged_style,
         config=graph_config or {"displaylogo": False},
     )
+
+    if alert is not None:
+        return html.Div([alert, graph_component])
+
+    return graph_component
 
 
 def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dict[str, float]]:
