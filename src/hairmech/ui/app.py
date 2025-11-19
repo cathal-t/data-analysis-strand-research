@@ -1053,6 +1053,9 @@ def _make_dimensional_record_fig(
     fig = make_subplots(rows=1, cols=len(cols), subplot_titles=cols)
     x_vals = df["N"].tolist() if "N" in df.columns else list(range(1, len(df) + 1))
 
+    max_points = 1000
+    step = max(1, len(df) // max_points) if len(df) else 1
+
     values = df[cols].to_numpy(dtype=float, na_value=np.nan)
 
     y_range: list[float] | None = None
@@ -1072,10 +1075,18 @@ def _make_dimensional_record_fig(
             y_range = [y_min, y_max]
 
     for idx, col in enumerate(cols, start=1):
+        y_full = df[col].to_numpy(dtype=float, na_value=np.nan)
+        x_sample = x_vals[::step]
+        y_sample = y_full[::step]
+
+        if x_vals and (not x_sample or x_sample[-1] != x_vals[-1]):
+            x_sample = list(x_sample) + [x_vals[-1]]
+            y_sample = list(y_sample) + [y_full[-1]]
+
         fig.add_trace(
             go.Scatter(
-                x=x_vals,
-                y=df[col],
+                x=x_sample,
+                y=y_sample,
                 mode="lines",
                 name=col,
                 showlegend=False,
