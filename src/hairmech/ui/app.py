@@ -1332,6 +1332,40 @@ def _build_dimensional_plot_children(
     return children
 
 
+def _serialise_dimensional_records(
+    records: dict[int, pd.DataFrame], slice_cols: list[str]
+) -> dict[str, object]:
+    return {
+        "slice_cols": list(slice_cols),
+        "records": [
+            {
+                "record_id": int(record_id),
+                "rows": df.to_dict(orient="records"),
+            }
+            for record_id, df in records.items()
+        ],
+    }
+
+
+def _deserialise_dimensional_records(
+    payload: dict[str, object] | None,
+) -> tuple[dict[int, pd.DataFrame], list[str]]:
+    if not payload:
+        return {}, []
+
+    slice_cols = [str(col) for col in payload.get("slice_cols", [])]
+    records: dict[int, pd.DataFrame] = {}
+    for entry in payload.get("records", []):
+        try:
+            record_id = int(entry.get("record_id"))
+        except (TypeError, ValueError):
+            continue
+        rows = entry.get("rows") or []
+        records[record_id] = pd.DataFrame(rows)
+
+    return records, slice_cols
+
+
 # ────────────── slot rebalance ──────────────
 def _rebalance_rows(rows: List[dict]):
     """
@@ -1561,6 +1595,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             className="mb-3",
                         ),
                         html.Div(_static_toggle(), className="position-relative", style={"zIndex": 1}),
+                        dcc.Store(id="dim-cleaning-data"),
                         dcc.Store(id="dim-export-directory"),
                         dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
                         html.Div(id="dim-cleaning-plots", className="mt-4"),
@@ -1788,6 +1823,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-cleaning-alert", "color"),
         Output("dim-cleaning-alert", "is_open"),
         Output("dim-cleaning-plots", "children"),
+        Output("dim-cleaning-data", "data"),
         Output("dim-export-directory", "data"),
         Output("dim-removed-summary-container", "style"),
         Input("upload-dim-cleaning", "contents"),
@@ -1803,7 +1839,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         try:
             preferred_path = _parse_export_directory(preferred_dir)
         except ValueError as exc:
-            return str(exc), "danger", True, [], None, {"display": "none"}
+            return str(exc), "danger", True, [], None, None, {"display": "none"}
 
         raw = _b64_to_bytes(contents)
         uvc_path, original_dir = _store_uvc_file(raw, filename)
@@ -1826,6 +1862,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             f"{export_path.stem}_gpdsr{export_path.suffix}"
         )
         export_dir_data: dict[str, object] | None = None
+        serialized_data: dict[str, object] | None = None
         summary_style = {"display": "none"}
 
         dimensional_path = produced_paths.get("dimensional", export_path)
@@ -1857,6 +1894,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     )
                 ]
             else:
+                serialized_data = _serialise_dimensional_records(records, slice_cols)
                 plots = _build_dimensional_plot_children(
                     records, slice_cols, static_images=_static_enabled(static_value)
                 )
@@ -1868,8 +1906,24 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             ("success" if success else "danger"),
             True,
             plots,
+            serialized_data,
             export_dir_data,
             summary_style,
+        )
+
+    @app.callback(
+        Output("dim-cleaning-plots", "children", allow_duplicate=True),
+        Input("static-plot-toggle", "value"),
+        State("dim-cleaning-data", "data"),
+        prevent_initial_call=True,
+    )
+    def _rerender_dim_plots(static_value, payload):
+        records, slice_cols = _deserialise_dimensional_records(payload)
+        if not records:
+            raise PreventUpdate
+
+        return _build_dimensional_plot_children(
+            records, slice_cols, static_images=_static_enabled(static_value)
         )
 
     @app.callback(
