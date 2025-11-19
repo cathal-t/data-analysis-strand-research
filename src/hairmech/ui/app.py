@@ -37,6 +37,7 @@ from dash import Dash, dcc, html, dash_table
 from dash.dependencies import ALL, MATCH, Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
+from plotly.io import to_image
 from plotly.subplots import make_subplots
 
 from ..analysis import build_summary, build_stats, long_to_wide
@@ -1083,6 +1084,70 @@ def _make_dimensional_record_fig(
     return fig
 
 
+def _fig_to_png_b64(
+    fig: go.Figure, *, height: int | None = None, width: int | None = None
+) -> str:
+    png_bytes = to_image(fig, format="png", height=height, width=width, scale=2)
+    return base64.b64encode(png_bytes).decode("ascii")
+
+
+def _static_enabled(selected: list[str] | None) -> bool:
+    return bool(selected and "static" in selected)
+
+
+def _render_plot_component(
+    fig: go.Figure,
+    *,
+    static_images: bool,
+    graph_height: int | None = None,
+    class_name: str | None = None,
+    style: dict | None = None,
+    alt: str = "Plot image",
+    graph_config: dict | None = None,
+    width: int | None = None,
+):
+    merged_style = dict(style or {})
+    effective_height = graph_height
+    if effective_height is None:
+        layout_height = getattr(fig.layout, "height", None)
+        if isinstance(layout_height, (int, float)):
+            effective_height = int(layout_height)
+
+    if static_images:
+        width_px = width
+        if width_px is None:
+            layout_width = getattr(fig.layout, "width", None)
+            if isinstance(layout_width, (int, float)):
+                width_px = int(layout_width)
+        width_px = width_px or 1200
+
+        try:
+            img_b64 = _fig_to_png_b64(fig, height=effective_height, width=width_px)
+        except Exception:
+            logger.exception("Falling back to interactive graph; static rendering failed.")
+        else:
+            img_style = {"width": "100%", "maxWidth": f"{width_px}px"}
+            if effective_height:
+                img_style["height"] = f"{effective_height}px"
+            img_style.update(merged_style)
+            return html.Img(
+                src=f"data:image/png;base64,{img_b64}",
+                alt=alt,
+                style=img_style,
+                className=class_name,
+            )
+
+    if effective_height and "height" not in merged_style:
+        merged_style["height"] = f"{effective_height}px"
+
+    return dcc.Graph(
+        figure=fig,
+        className=class_name,
+        style=merged_style,
+        config=graph_config or {"displaylogo": False},
+    )
+
+
 def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dict[str, float]]:
     cols = [c for c in slice_cols if c in df.columns]
     stats: list[dict[str, float]] = []
@@ -1217,7 +1282,10 @@ def _make_slice_error_table(record_id: int, df: pd.DataFrame, slice_cols: list[s
 
 
 def _build_dimensional_plot_children(
-    records: dict[int, pd.DataFrame], slice_cols: list[str]
+    records: dict[int, pd.DataFrame],
+    slice_cols: list[str],
+    *,
+    static_images: bool = False,
 ) -> list:
     if not records:
         return [
@@ -1239,7 +1307,12 @@ def _build_dimensional_plot_children(
             dbc.Card(
                 dbc.CardBody(
                     [
-                        dcc.Graph(figure=fig, config={"displaylogo": False}),
+                        _render_plot_component(
+                            fig,
+                            static_images=static_images,
+                            class_name="mb-3",
+                            alt=f"Record {record_id} slice plot",
+                        ),
                         error_table,
                     ]
                 ),
@@ -1357,6 +1430,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         className="g-2 flex-wrap",
     )
 
+    def _static_toggle():
+        return dbc.Checklist(
+            id="static-plot-toggle",
+            options=[{"label": " Render plots as PNG images (no zoom/hover)", "value": "static"}],
+            value=[],
+            switch=True,
+            className="mb-2",
+        )
+
     cond_table = dash_table.DataTable(
         id="cond-table",
         columns=[
@@ -1403,7 +1485,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     )
 
     actions_card = dbc.Card(
-        dbc.CardBody([apply_btn, html.Span(className="mx-2"), view_dd, html.Hr(), download_row]),
+        dbc.CardBody(
+            [apply_btn, html.Span(className="mx-2"), view_dd, html.Hr(), _static_toggle(), download_row]
+        ),
         className="mb-3 shadow-sm",
     )
 
@@ -1475,6 +1559,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 "backgroundColor": "#fafafa",
                             },
                         ),
+                        _static_toggle(),
                         dcc.Store(id="dim-export-directory"),
                         dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
                         html.Div(id="dim-cleaning-plots", className="mt-4"),
@@ -1554,6 +1639,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         ),
                         dbc.Alert(id="ten-cleaning-alert", is_open=False, className="mt-3"),
                         html.Div(id="ten-cleaning-result", className="mt-4"),
+                        _static_toggle(),
                         dcc.Store(id="ten-cleaning-export"),
                         dbc.Button(
                             "Generate Tensile_Data.txt",
@@ -1705,9 +1791,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Input("upload-dim-cleaning", "contents"),
         State("upload-dim-cleaning", "filename"),
         State("dim-export-dir", "value"),
+        State("static-plot-toggle", "value"),
         prevent_initial_call=True,
     )
-    def _process_dimensional_cleaning(contents, filename, preferred_dir):
+    def _process_dimensional_cleaning(contents, filename, preferred_dir, static_value):
         if not contents or not filename:
             raise PreventUpdate
 
@@ -1768,7 +1855,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     )
                 ]
             else:
-                plots = _build_dimensional_plot_children(records, slice_cols)
+                plots = _build_dimensional_plot_children(
+                    records, slice_cols, static_images=_static_enabled(static_value)
+                )
                 if records:
                     summary_style = {"display": "block"}
 
@@ -1795,9 +1884,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Input("upload-ten-cleaning", "contents"),
         State("upload-ten-cleaning", "filename"),
         State("ten-export-dir", "value"),
+        State("static-plot-toggle", "value"),
         prevent_initial_call=True,
     )
-    def _process_tensile_cleaning(contents, filename, preferred_dir):
+    def _process_tensile_cleaning(contents, filename, preferred_dir, static_value):
         if not contents or not filename:
             raise PreventUpdate
 
@@ -1838,6 +1928,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         result_children: list = []
         store_payload: dict[str, object] | None = None
+        static_images = _static_enabled(static_value)
+
         if success:
             result_children = [
                 html.H5("Tensile export output", className="mb-2"),
@@ -1915,9 +2007,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 "data": store_rows,
                             }
                         result_children.append(
-                            dcc.Graph(
-                                figure=_build_tensile_force_figure(tensile_df),
-                                config={"displaylogo": False},
+                            _render_plot_component(
+                                _build_tensile_force_figure(tensile_df),
+                                static_images=static_images,
+                                graph_config={"displaylogo": False},
+                                alt="Force versus strain curves",
                             )
                         )
             else:
@@ -2677,8 +2771,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("fig-container", "children"),
         Input("tabs", "value"),
         Input("exp-data", "data"),
+        Input("static-plot-toggle", "value"),
     )
-    def _draw(tab, payload):
+    def _draw(tab, payload, static_value):
         areas, tensile, conds, feedback = _analysis_inputs(payload)
         fig = (
             _overlay_fig(areas, tensile, conds)
@@ -2690,11 +2785,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if isinstance(layout_height, (int, float)):
             graph_height = max(graph_height, int(layout_height))
 
+        static_images = _static_enabled(static_value)
         children = [
-            dcc.Graph(
-                figure=fig,
-                style={"height": f"{graph_height}px", "marginBottom": "8rem"},
-                className="mb-5",
+            _render_plot_component(
+                fig,
+                static_images=static_images,
+                graph_height=graph_height,
+                class_name="mb-5",
+                style={"marginBottom": "8rem"},
+                alt="Overlay plot" if tab == "overlay" else "Violin grid",
             )
         ]
         alerts = _render_removed_feedback(feedback)
