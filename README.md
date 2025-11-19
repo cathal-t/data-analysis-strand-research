@@ -1,26 +1,80 @@
 # data-analysis-strand-research
 
-### Folder Layout Version 0.1
+Hair-mechanics analysis & visualisation toolkit for Dia-Stron experiments.
+The package ingests exported dimensional and tensile `.txt` files, cleans
+slot metadata, computes summary metrics, and writes Excel/HTML reports. A
+Dash front-end mirrors the notebook workflow for interactive exploration.
+
+## Installation
+
+```bash
+poetry install
+```
+
+The package installs a `hairmech` console script. All commands below assume
+an active Poetry shell or any environment with the project dependencies.
+
+## CLI usage
+
+Run the full pipeline against an experiment folder containing
+`Dimensional_Data.txt`, `Tensile_Data.txt`, and `config.yml`:
+
+```bash
+hairmech run -i /path/to/experiment -o /path/to/results
+```
+
+Outputs include:
+
+- `metrics.xlsx` with per-slot measurements (UTS, break stress/strain,
+  elastic modulus, etc.).
+- `stats.xlsx` with wide-format statistics and control comparisons.
+- `overlay.html` and `violin_grid.html` Plotly exports visualising the
+  processed curves and distributions.
+
+Launch the interactive Dash UI (optional) to explore the same pipeline in a
+browser:
+
+```bash
+hairmech serve
+```
+
+The UI lives at `http://127.0.0.1:8050` and provides upload controls plus
+tabs for overlay and violin visualisations.
+
+## Project layout
+
+```
 hairmech/
-├─ pyproject.toml          ← Poetry, build-system & deps
-├─ README.md
-├─ CHANGELOG.md
-├─ Dockerfile
-├─ src/
-│  └─ hairmech/
+├─ src/hairmech/
+│  ├─ cli.py                 # click entry-point for run/serve commands
+│  ├─ analysis.py            # metric calculations & stats helpers
+│  ├─ dimensional.py         # Dia-Stron dimensional loader → area map
+│  ├─ dimensioncleaning.py   # helpers for cleaning dimensional exports
+│  ├─ tensile.py             # tensile data parsing & stress/strain helpers
+│  ├─ util.py                # shared maths/utilities
+│  ├─ plots.py               # Plotly figures (overlay, violin grid)
+│  ├─ io/
+│  │  ├─ config.py           # YAML loader for experiment conditions
+│  │  └─ export.py           # Excel writers for metrics/statistics
+│  └─ ui/
 │     ├─ __init__.py
-│     ├─ cli.py
-│     ├─ io.py
-│     ├─ util.py
-│     ├─ dimensional.py
-│     ├─ tensile.py
-│     ├─ analysis.py
-│     ├─ plots.py
-│     └─ app_dash.py
+│     └─ app.py              # Dash layout + callbacks (build_dash_app)
 └─ tests/
-   ├─ conftest.py
-   ├─ data/                 ← tiny .txt fixtures
-   ├─ test_dimensional.py
-   ├─ test_tensile.py
-   ├─ test_analysis.py
-   └─ test_cli.py
+   ├─ fixtures/demo_exp/     # tiny experiment fixture with config.yml
+   ├─ test_cli.py            # CLI smoke tests
+   ├─ test_analysis.py       # metric/statistics helpers
+   ├─ test_dimensional.py    # dimensional loader
+   ├─ test_tensile.py        # tensile parsing helpers
+   ├─ test_util.py           # utility functions
+   ├─ test_export.py         # Excel export sanity checks
+   ├─ test_ui.py             # Dash UI smoke tests
+   └─ test_ui_app.py         # UI layout helpers
+```
+
+## Development
+
+Run the test suite with:
+
+```bash
+pytest
+```
