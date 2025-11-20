@@ -1841,11 +1841,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-export-directory", "data"),
         Output("dim-removed-summary-container", "style"),
         Input("upload-dim-cleaning", "contents"),
+        Input("dim-export-dir", "value"),
         State("upload-dim-cleaning", "filename"),
-        State("dim-export-dir", "value"),
         prevent_initial_call=True,
     )
-    def _process_dimensional_cleaning(contents, filename, preferred_dir):
+    def _process_dimensional_cleaning(contents, preferred_dir, filename):
         if not contents or not filename:
             raise PreventUpdate
 
