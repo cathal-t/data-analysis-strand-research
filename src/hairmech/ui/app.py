@@ -1673,208 +1673,92 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         style={"maxWidth": "1100px"},
     )
 
-    landing_intro = html.Div(
-        [
-            dbc.Card(
-                dbc.CardBody(
-                    [
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        html.Small("Strand Research Suite", className="text-uppercase fw-semibold text-primary"),
-                                        html.H2(
-                                            "Modern tools for dimensional and tensile analysis",
-                                            className="fw-bold",
-                                            style={"letterSpacing": "-0.02em"},
-                                        ),
-                                        html.P(
-                                            "Streamlined workflows for cleaning, exploring, and comparing fiber experiments with a focus on clarity and reproducibility.",
-                                            className="text-muted lead",
-                                        ),
-                                        dbc.Button(
-                                            "Start analyzing",
-                                            id="btn-landing-analysis",
-                                            color="primary",
-                                            href="/analysis",
-                                            className="me-2",
-                                            size="lg",
-                                        ),
-                                        dbc.Button(
-                                            "Data cleaning",
-                                            id="btn-landing-cleaning",
-                                            color="outline-secondary",
-                                            size="lg",
-                                            className="border-0",
-                                            style={"backgroundColor": "#f3f4f6"},
-                                        ),
-                                    ],
-                                    md=8,
-                                ),
-                                dbc.Col(
-                                    [
-                                        html.Div(
-                                            [
-                                                html.Div(
-                                                    "Built for Dia-Stron exports",
-                                                    className="text-muted small",
-                                                ),
-                                                html.H4("Upload. Clean. Compare.", className="fw-semibold mb-3"),
-                                                dbc.Row(
-                                                    [
-                                                        dbc.Col(
-                                                            [
-                                                                html.Div("Dimensional", className="small text-muted"),
-                                                                html.H5("UVC → tidy data", className="fw-semibold mb-0"),
-                                                            ],
-                                                        ),
-                                                        dbc.Col(
-                                                            [
-                                                                html.Div("Tensile", className="small text-muted"),
-                                                                html.H5("Force curves visualized", className="fw-semibold mb-0"),
-                                                            ],
-                                                        ),
-                                                    ],
-                                                    className="g-2",
-                                                ),
-                                                html.Hr(className="my-3"),
-                                                dbc.Row(
-                                                    [
-                                                        dbc.Col(
-                                                            dbc.Checklist(
-                                                                id="debug-toggle",
-                                                                options=[{"label": " Enable debug logging", "value": "debug"}],
-                                                                value=[],
-                                                                switch=True,
-                                                                className="mb-0",
-                                                            ),
-                                                            width="auto",
-                                                        ),
-                                                        dbc.Col(
-                                                            html.Span(
-                                                                "Debug logging is off. Enable to print debug statements to the server console.",
-                                                                id="debug-toggle-status",
-                                                                className="text-muted",
-                                                            ),
-                                                        ),
-                                                    ],
-                                                    className="align-items-center g-2",
-                                                ),
-                                            ],
-                                            className="p-4 bg-light rounded-4 border border-0",
-                                        )
-                                    ],
-                                    md=4,
-                                ),
-                            ],
-                            className="g-4 align-items-center",
-                        ),
-                    ]
+    landing_intro = dbc.Card(
+        dbc.CardBody(
+            [
+                html.H4("Welcome to Strand Research Analytics", className="card-title"),
+                html.P(
+                    "Select a workflow to get started. Additional modules will be available soon.",
+                    className="text-muted",
                 ),
-                className="shadow-sm border-0",
-                style={"background": "linear-gradient(135deg, #ffffff 0%, #f7f9fc 100%)"},
-            ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        dbc.Card(
-                            dbc.CardBody(
-                                [
-                                    html.Div("Dimensional cleaning", className="text-muted small mb-1"),
-                                    html.H4("Prepare UVC exports", className="fw-semibold"),
-                                    html.P(
-                                        "Upload UVC files, review detected slots, and remove outliers before generating Dimensional_Data.txt.",
-                                        className="text-muted",
-                                    ),
-                                    html.Div(
-                                        dbc.Stack(
-                                            [
-                                                dbc.Button(
-                                                    "Dimensional cleaning",
-                                                    id="btn-landing-dim-cleaning",
-                                                    color="primary",
-                                                    className="flex-grow-1",
-                                                    style={"backgroundColor": "#0f172a", "borderColor": "#0f172a"},
-                                                ),
-                                                dbc.Button(
-                                                    "Tensile cleaning",
-                                                    id="btn-landing-ten-cleaning",
-                                                    color="light",
-                                                    className="flex-grow-1 text-body",
-                                                    style={"backgroundColor": "#f8fafc"},
-                                                ),
-                                            ],
-                                            gap=2,
-                                        ),
-                                        id="cleaning-subbuttons",
-                                        style={"display": "none"},
-                                    ),
-                                ]
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dbc.Checklist(
+                                id="debug-toggle",
+                                options=[{"label": " Enable debug logging", "value": "debug"}],
+                                value=[],
+                                switch=True,
+                                className="mb-0",
                             ),
-                            className="h-100 border-0 shadow-sm",
+                            width="auto",
                         ),
-                        md=6,
-                    ),
-                    dbc.Col(
-                        dbc.Card(
-                            dbc.CardBody(
+                        dbc.Col(
+                            html.Span(
+                                "Debug logging is off. Enable to print debug statements to the server console.",
+                                id="debug-toggle-status",
+                                className="text-muted",
+                            )
+                        ),
+                    ],
+                    className="align-items-center g-2",
+                ),
+                dbc.Stack(
+                    [
+                        dbc.Button(
+                            "Data Cleaning",
+                            id="btn-landing-cleaning",
+                            color="secondary",
+                            className="mx-auto",
+                            style={"width": "70%"},
+                        ),
+                        html.Div(
+                            dbc.Stack(
                                 [
-                                    html.Div("Analysis", className="text-muted small mb-1"),
-                                    html.H4("Overlay & violin summaries", className="fw-semibold"),
-                                    html.P(
-                                        "Combine dimensional areas with tensile force curves to explore conditions, distributions, and per-slot traces.",
-                                        className="text-muted",
+                                    dbc.Button(
+                                        "Dimensional Cleaning",
+                                        id="btn-landing-dim-cleaning",
+                                        color="light",
+                                        className="mx-auto",
+                                        style={"width": "100%"},
                                     ),
                                     dbc.Button(
-                                        "Open analysis workspace",
-                                        color="primary",
-                                        href="/analysis",
-                                        className="mt-2",
+                                        "Tensile Cleaning",
+                                        id="btn-landing-ten-cleaning",
+                                        color="light",
+                                        className="mx-auto",
+                                        style={"width": "100%"},
                                     ),
-                                ]
+                                ],
+                                gap=2,
+                                className="mx-auto",
+                                style={"width": "70%"},
                             ),
-                            className="h-100 border-0 shadow-sm",
+                            id="cleaning-subbuttons",
+                            style={"display": "none"},
                         ),
-                        md=6,
-                    ),
-                ],
-                className="gy-3 mt-4",
-            ),
-            dbc.Card(
-                dbc.CardBody(
-                    [
-                        html.Div("Roadmap", className="text-muted small mb-2"),
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        html.H4("Multiple cassette analysis", className="fw-semibold mb-2"),
-                                        html.P(
-                                            "Cross-cassette comparisons and batch statistics are on the way. Stay tuned for updates.",
-                                            className="text-muted mb-0",
-                                        ),
-                                    ],
-                                    md=9,
-                                ),
-                                dbc.Col(
-                                    dbc.Button(
-                                        "Coming soon",
-                                        id="btn-landing-cross",
-                                        color="secondary",
-                                        disabled=True,
-                                        className="w-100",
-                                    ),
-                                    md=3,
-                                ),
-                            ],
-                            className="align-items-center g-2",
+                        dbc.Button(
+                            "Dimensional & Tensile Analysis",
+                            id="btn-landing-analysis",
+                            color="primary",
+                            href="/analysis",
+                            className="mx-auto",
+                            style={"width": "70%"},
                         ),
-                    ]
+                        dbc.Button(
+                            "Multiple Cassette Analysis (coming soon)",
+                            id="btn-landing-cross",
+                            color="secondary",
+                            disabled=True,
+                            className="mx-auto",
+                            style={"width": "70%"},
+                        ),
+                    ],
+                    gap=3,
                 ),
-                className="shadow-sm border-0 mt-4",
-            ),
-        ],
-        className="d-flex flex-column gap-3",
+            ]
+        ),
+        className="shadow-sm",
     )
 
     landing_layout = dbc.Container(
