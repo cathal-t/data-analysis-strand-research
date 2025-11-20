@@ -831,8 +831,8 @@ def _run_uvwin_export(
     gpdsr_output = output_file.with_name(
         f"{output_file.stem}_gpdsr{output_file.suffix}"
     )
-    tensile_output = output_file.with_name(
-        f"{uvc_path.stem}_tensile{output_file.suffix}"
+    ascii_output = output_file.with_name(
+        f"{uvc_path.stem}_ascii{output_file.suffix}"
     )
 
     try:
@@ -848,7 +848,7 @@ def _run_uvwin_export(
     available_exports: dict[str, Path] = {
         "dimensional": output_file,
         "gpdsr": gpdsr_output,
-        "tensile": tensile_output,
+        "tensile": ascii_output,
     }
 
     if modes is None:
