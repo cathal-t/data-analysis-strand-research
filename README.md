@@ -54,7 +54,34 @@ Launch the interactive Dash UI to explore the same pipeline in a
 browser:
 
 ```bash
+ cd data-analysis-strand-research
+ git checkout main
+ git pull
  poetry run hairmech serve
+```
+## Terminal usage (Mac)
+```bash
+cd ~/Desktop
+cat > run_hairmech.command << 'EOF'
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Double-click this .command file to open Terminal, cd into your repo, and
+# start the Hair-mech Dash app via Poetry.
+# ─────────────────────────────────────────────────────────────────────────────
+# Change this to the path where you’ve cloned the repo:
+REPO_PATH="data-analysis-strand-research"
+# 1. cd into the repo
+cd "$REPO_PATH" || {
+  echo ":x: Could not cd into $REPO_PATH"
+  exit 1
+}
+# 2. Make sure you’re on main and up to date
+git checkout main
+git pull
+# 3. Launch the app
+poetry run hairmech serve
+EOF
+chmod +x run_hairmech.command
 ```
 
 The UI lives at `http://127.0.0.1:8050` and provides upload controls plus
@@ -90,10 +117,3 @@ hairmech/
    └─ test_ui_app.py         # UI layout helpers
 ```
 
-## Development
-
-Run the test suite with:
-
-```bash
-pytest
-```
