@@ -99,7 +99,10 @@ def _merge_uploaded_files(
 
 
 def _build_summary(
-    files: list[dict], selections: Iterable[str], control_label: str | None
+    files: list[dict],
+    selections: Iterable[str],
+    control_label: str | None,
+    condition_order: Iterable[str] | None,
 ):
     frames: list[pd.DataFrame] = []
     cond_labels: list[str] = []
@@ -128,9 +131,19 @@ def _build_summary(
 
     summary_df = pd.concat(frames, ignore_index=False).reset_index(drop=True)
 
+    ordered_unique: list[str] = []
+    if condition_order:
+        for label in condition_order:
+            if label in cond_labels and label not in ordered_unique:
+                ordered_unique.append(label)
+
+    for label in cond_labels:
+        if label not in ordered_unique:
+            ordered_unique.append(label)
+
     conds = [
         Condition(name=label, slots=(i + 1,), is_control=label == control_label)
-        for i, label in enumerate(dict.fromkeys(cond_labels))
+        for i, label in enumerate(ordered_unique)
     ]
 
     if not any(c.is_control for c in conds):
@@ -182,6 +195,14 @@ def register_multi_cassette_page(app: dash.Dash):
                     html.Hr(),
                     dbc.Label("Control condition"),
                     dcc.Dropdown(id="mc-control", placeholder="Select control", clearable=False),
+                    html.Hr(),
+                    dbc.Label("Plot order"),
+                    dcc.Dropdown(
+                        id="mc-order",
+                        multi=True,
+                        placeholder="Arrange conditions for plotting",
+                        clearable=False,
+                    ),
                 ]
             ),
         ],
@@ -258,6 +279,8 @@ def register_multi_cassette_page(app: dash.Dash):
         Output("mc-condition-selectors", "children"),
         Output("mc-control", "options"),
         Output("mc-control", "value"),
+        Output("mc-order", "options"),
+        Output("mc-order", "value"),
         Input("mc-files-store", "data"),
         prevent_initial_call=True,
     )
@@ -267,6 +290,8 @@ def register_multi_cassette_page(app: dash.Dash):
 
         selectors = []
         control_options: list[dict] = []
+        order_options: list[dict] = []
+        order_values: list[str] = []
         seen_controls: set[str] = set()
 
         for idx, entry in enumerate(files_data):
@@ -302,19 +327,24 @@ def register_multi_cassette_page(app: dash.Dash):
 
                 seen_controls.add(cond_name)
                 control_options.append({"label": cond_name, "value": cond_name})
+                order_options.append({"label": cond_name, "value": cond_name})
+                order_values.append(cond_name)
 
         control_value = control_options[0]["value"] if control_options else None
-        return selectors, control_options, control_value
+        return selectors, control_options, control_value, order_options, order_values
 
     @app.callback(
         Output("mc-control", "options", allow_duplicate=True),
         Output("mc-control", "value", allow_duplicate=True),
+        Output("mc-order", "options", allow_duplicate=True),
+        Output("mc-order", "value", allow_duplicate=True),
         Input({"type": "mc-conditions", "index": ALL}, "value"),
         State("mc-files-store", "data"),
         State("mc-control", "value"),
+        State("mc-order", "value"),
         prevent_initial_call=True,
     )
-    def _sync_control(selection_values, files_data, current_control):
+    def _sync_control(selection_values, files_data, current_control, current_order):
         if not files_data:
             raise PreventUpdate
 
@@ -324,9 +354,20 @@ def register_multi_cassette_page(app: dash.Dash):
                 cond_name = raw.split("::", 1)[1]
                 all_selected.append(_condition_label(files_data[idx]["name"], cond_name))
 
-        options = [{"label": val, "value": val} for val in sorted(set(all_selected))]
+        ordered_unique: list[str] = []
+        for val in all_selected:
+            if val not in ordered_unique:
+                ordered_unique.append(val)
+
+        options = [{"label": val, "value": val} for val in ordered_unique]
         control_value = current_control if current_control in all_selected else (options[0]["value"] if options else None)
-        return options, control_value
+
+        current_order = current_order or []
+        order_value = [val for val in current_order if val in ordered_unique] + [
+            val for val in ordered_unique if val not in current_order
+        ]
+
+        return options, control_value, options, order_value
 
     @app.callback(
         Output("mc-figure", "children"),
@@ -337,16 +378,19 @@ def register_multi_cassette_page(app: dash.Dash):
         Input("mc-plot", "n_clicks"),
         State({"type": "mc-conditions", "index": ALL}, "value"),
         State("mc-control", "value"),
+        State("mc-order", "value"),
         State("mc-files-store", "data"),
         prevent_initial_call=True,
     )
-    def _plot(_, selections, control_value, files_data):
+    def _plot(_, selections, control_value, order_value, files_data):
         if not files_data:
             raise PreventUpdate
 
         try:
             flat_selections = [val for group in (selections or []) for val in (group or [])]
-            summary_df, conds = _build_summary(files_data, flat_selections, control_value)
+            summary_df, conds = _build_summary(
+                files_data, flat_selections, control_value, order_value
+            )
             metrics_od = _metric_labels_from_summary(summary_df)
             fig = make_violin_grid(
                 summary_df,
