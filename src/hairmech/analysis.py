@@ -103,13 +103,14 @@ def build_stats(
     order of that OrderedDict drives the column order in the wide export.
     """
     control = _control_name(conditions)
+    condition_order = [c.name for c in conditions]
     rows: list[list] = []
 
     for col, nice in metrics.items():
         ctrl_vals = summary_df.loc[summary_df["Condition"] == control, col].dropna()
         ctrl_mean = ctrl_vals.mean()
 
-        for cond in summary_df["Condition"].unique():
+        for cond in condition_order:
             test_vals = summary_df.loc[summary_df["Condition"] == cond, col].dropna()
 
             # always emit a row for the control itself
@@ -165,12 +166,15 @@ def long_to_wide(
     summary_df: pd.DataFrame,
     control_name: str,
     metrics: "OrderedDict[str, str] | None" = None,
+    condition_order: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Pivot *stats_long* to the 2-level wide layout expected by Excel.
 
     *metrics* (if given) provides the desired **order** of metric
     blocks; otherwise the first-appearance order in *stats_long* is used.
+    *condition_order* (if given) determines the row order, otherwise the
+    control is placed first followed by first-appearance order.
     """
     wanted_stats = ["Test_Mean", "% Change", "p", "d", "Effect"]
 
@@ -208,7 +212,11 @@ def long_to_wide(
     wide.insert(0, ("", "N"), n_sizes.reindex(wide.index).astype("Int64"))
 
     # ---- control row first -------------------------------------------
-    if control_name in wide.index:
+    if condition_order:
+        ordered_rows = [cond for cond in condition_order if cond in wide.index]
+        ordered_rows.extend(idx for idx in wide.index if idx not in ordered_rows)
+        wide = wide.reindex(ordered_rows)
+    elif control_name in wide.index:
         wide = wide.reindex(
             [control_name] + [idx for idx in wide.index if idx != control_name]
         )
