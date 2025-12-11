@@ -200,27 +200,30 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
     control_name = next(c.name for c in conds if c.is_control)
     fig.update_layout(
         template="plotly_white",
-        height=900,
-        width=1050,
-        margin=dict(t=100, l=70, r=170, b=70),
+        height=950,
+        width=1150,
+        margin=dict(t=90, l=70, r=40, b=180),
         title=dict(
             text=f"<b>Mechanical metric distributions</b><br>"
                  f"<sup>Control = {control_name}</sup>",
             x=0.5,
-            y=0.98,
+            y=0.985,
             xanchor="center",
             font=dict(size=18),
         ),
         legend=dict(
-            orientation="v",
-            yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.02,
-            bgcolor="rgba(255,255,255,0.9)",
+            title="Conditions",
+            orientation="h",
+            yanchor="bottom",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(255,255,255,0.92)",
             borderwidth=1,
             itemsizing="constant",
-            tracegroupgap=4,
+            itemwidth=180,
+            tracegroupgap=10,
+            font=dict(size=12),
         ),
     )
 
