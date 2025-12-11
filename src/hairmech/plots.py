@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Dict, List, Sequence
 
 import pandas as pd
@@ -139,6 +140,7 @@ def make_violin_grid(
     stacked: bool = False,
     legend_labels: dict[str, str] | None = None,
     legend_position: str = "right",
+    metrics: "OrderedDict[str, str]" = METRIC_LABELS,
 ) -> go.Figure:
     """
     Grid of metric distributions – visually identical to the Jupyter notebook by default.
@@ -159,7 +161,6 @@ def make_violin_grid(
         original notebook layout.
     """
     # ---- palette identical to notebook ------------------------------------
-    metrics = METRIC_LABELS
     n_rows, n_cols = (len(metrics), 1) if stacked else (3, 2)
 
     cond_names = [c.name for c in conds]
