@@ -66,6 +66,27 @@ def _load_metrics_df(raw: bytes) -> pd.DataFrame:
     return df
 
 
+def _merge_uploaded_files(
+    current_files: list[dict] | None, new_files: list[dict]
+) -> list[dict]:
+    """Merge newly uploaded Metrics files with any already stored ones.
+
+    Previously uploaded files are preserved by filename, and any re-upload of
+    the same filename replaces the stored entry while retaining its original
+    position in the list. New filenames are appended to the end.
+    """
+
+    merged: dict[str, dict] = {}
+
+    for entry in current_files or []:
+        merged.setdefault(entry["name"], entry)
+
+    for entry in new_files:
+        merged[entry["name"]] = entry
+
+    return list(merged.values())
+
+
 def _build_summary(
     files: list[dict], selections: Iterable[str], control_label: str | None
 ):
@@ -194,9 +215,10 @@ def register_multi_cassette_page(app: dash.Dash):
         Output("mc-upload-alert", "is_open"),
         Input("mc-upload", "contents"),
         State("mc-upload", "filename"),
+        State("mc-files-store", "data"),
         prevent_initial_call=True,
     )
-    def _ingest_metrics(contents, filenames):
+    def _ingest_metrics(contents, filenames, existing_files):
         if not contents or not filenames:
             raise PreventUpdate
 
@@ -214,8 +236,12 @@ def register_multi_cassette_page(app: dash.Dash):
                 }
             )
 
-        msg = f"Loaded {len(parsed)} Metrics file{'s' if len(parsed) > 1 else ''}."
-        return parsed, msg, "success", True
+        merged_files = _merge_uploaded_files(existing_files, parsed)
+        msg = (
+            f"Loaded {len(parsed)} Metrics file{'s' if len(parsed) > 1 else ''}. "
+            f"{len(merged_files)} total in session."
+        )
+        return merged_files, msg, "success", True
 
     @app.callback(
         Output("mc-condition-selectors", "children"),
