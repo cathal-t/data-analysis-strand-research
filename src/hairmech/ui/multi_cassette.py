@@ -9,6 +9,7 @@ and download combined statistics for the selected conditions.
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 from dataclasses import asdict
 from io import BytesIO
 from typing import Iterable
@@ -367,7 +368,11 @@ def register_multi_cassette_page(app: dash.Dash):
 
         summary_df = pd.DataFrame(summary_payload["summary"])
         conds = [Condition(**c) for c in summary_payload["conditions"]]
-        metrics_od = METRIC_LABELS
+        metrics_od = OrderedDict(
+            (col, METRIC_LABELS[col])
+            for col in summary_df.columns
+            if col not in ("Slot", "Condition")
+        )
         long = build_stats(summary_df, conds, metrics_od)
         control_name = next(c.name for c in conds if c.is_control)
         wide = long_to_wide(long, summary_df, control_name, metrics_od)
