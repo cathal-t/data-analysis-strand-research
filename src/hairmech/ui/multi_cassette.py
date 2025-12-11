@@ -31,11 +31,14 @@ def _b64_to_bytes(content: str) -> bytes:
 
 
 def _render_plot_component(fig, *, class_name: str | None = None, alt: str = "Plot"):
-    return dcc.Graph(
-        figure=fig,
-        className=class_name,
-        config={"displaylogo": False},
-        aria_label=alt,
+    return html.Div(
+        dcc.Graph(
+            figure=fig,
+            className=class_name,
+            config={"displaylogo": False},
+        ),
+        role="img",
+        **{"aria-label": alt},
     )
 
 
