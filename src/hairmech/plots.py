@@ -138,7 +138,7 @@ def make_violin_grid(
     *,
     stacked: bool = False,
     legend_labels: dict[str, str] | None = None,
-    legend_position: str = "bottom",
+    legend_position: str = "right",
 ) -> go.Figure:
     """
     Grid of metric distributions – visually identical to the Jupyter notebook by default.
@@ -154,8 +154,9 @@ def make_violin_grid(
     legend_labels
         Optional mapping to override legend labels per condition name.
     legend_position
-        Where to position the legend. ``"bottom"`` matches the original notebook;
-        ``"right"`` moves it to a vertical block to the right of the plots.
+        Where to position the legend. ``"right"`` (default) keeps a compact
+        vertical legend beside the plots, while ``"bottom"`` matches the
+        original notebook layout.
     """
     # ---- palette identical to notebook ------------------------------------
     metrics = METRIC_LABELS
@@ -221,9 +222,9 @@ def make_violin_grid(
     # ---- layout identical to notebook ------------------------------------
     control_name = next(c.name for c in conds if c.is_control)
     height = 300 * n_rows if stacked else 950
-    width = 1250 if legend_position == "right" else 1150
-    margin_bottom = 230 if stacked else 180
-    margin_right = 220 if legend_position == "right" else 40
+    width = 1180 if legend_position == "right" else 1150
+    margin_bottom = 120 if legend_position == "right" else (230 if stacked else 180)
+    margin_right = 160 if legend_position == "right" else 40
     legend_y = -0.22 if stacked else -0.18
 
     legend_cfg = dict(
@@ -235,7 +236,6 @@ def make_violin_grid(
     )
 
     if legend_position == "right":
-        margin_bottom = 120 if stacked else 120
         legend_cfg.update(
             orientation="v",
             yanchor="top",
