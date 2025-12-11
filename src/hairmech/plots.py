@@ -231,8 +231,6 @@ def make_violin_grid(
         bgcolor="rgba(255,255,255,0.92)",
         borderwidth=1,
         itemsizing="constant",
-        itemwidth=180,
-        tracegroupgap=10,
         font=dict(size=12),
     )
 
@@ -244,6 +242,7 @@ def make_violin_grid(
             y=1,
             xanchor="left",
             x=1.02,
+            tracegroupgap=0,
         )
     else:
         legend_cfg.update(
@@ -252,6 +251,8 @@ def make_violin_grid(
             y=legend_y,
             xanchor="center",
             x=0.5,
+            itemwidth=180,
+            tracegroupgap=10,
         )
     fig.update_layout(
         template="plotly_white",
