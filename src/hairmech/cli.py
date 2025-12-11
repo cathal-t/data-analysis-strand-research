@@ -53,7 +53,14 @@ def run(input_dir: Path, out_dir: Path | None) -> None:
         summary = build_summary(areas, tensile, conds)
 
         stats_long = build_stats(summary, conds, METRIC_LABELS)
-        stats_wide = long_to_wide(stats_long, summary, control_name, METRIC_LABELS)
+        condition_order = [c.name for c in conds]
+        stats_wide = long_to_wide(
+            stats_long,
+            summary,
+            control_name,
+            METRIC_LABELS,
+            condition_order=condition_order,
+        )
 
         out_dir = out_dir or input_dir / "results"
         out_dir.mkdir(parents=True, exist_ok=True)

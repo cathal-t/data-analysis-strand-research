@@ -2778,7 +2778,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         )
         long = build_stats(summary, conds, metrics_od)
         control_name = next(c.name for c in conds if c.is_control)
-        wide = long_to_wide(long, summary, control_name, metrics_od)
+        condition_order = [c.name for c in conds]
+        wide = long_to_wide(
+            long,
+            summary,
+            control_name,
+            metrics_od,
+            condition_order=condition_order,
+        )
 
         return dcc.send_bytes(to_excel_bytes({"Stats": wide}), fname or "stats.xlsx")
 

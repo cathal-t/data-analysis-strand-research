@@ -425,7 +425,14 @@ def register_multi_cassette_page(app: dash.Dash):
         metrics_od = _metric_labels_from_summary(summary_df)
         long = build_stats(summary_df, conds, metrics_od)
         control_name = next(c.name for c in conds if c.is_control)
-        wide = long_to_wide(long, summary_df, control_name, metrics_od)
+        condition_order = [c.name for c in conds]
+        wide = long_to_wide(
+            long,
+            summary_df,
+            control_name,
+            metrics_od,
+            condition_order=condition_order,
+        )
 
         excel_bytes = to_excel_bytes({"Stats": wide})
 
