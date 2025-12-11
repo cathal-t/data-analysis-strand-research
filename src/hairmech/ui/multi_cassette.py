@@ -333,7 +333,8 @@ def register_multi_cassette_page(app: dash.Dash):
             raise PreventUpdate
 
         try:
-            summary_df, conds = _build_summary(files_data, selections, control_value)
+            flat_selections = [val for group in (selections or []) for val in (group or [])]
+            summary_df, conds = _build_summary(files_data, flat_selections, control_value)
             fig = make_violin_grid(summary_df, conds)
         except Exception as exc:  # pragma: no cover - user feedback
             return [], None, str(exc), "danger", True
