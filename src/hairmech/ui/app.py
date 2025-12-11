@@ -45,6 +45,7 @@ from ..dimensional import DimensionalData
 from ..io.config import Condition, ConfigError, load_config
 from ..plots import make_overlay, make_violin_grid
 from ..tensile import TensileTest
+from .multi_cassette import register_multi_cassette_page
 
 # ────────────── constants ──────────────
 TICK = "✓"
@@ -1383,6 +1384,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         suppress_callback_exceptions=True,
     )
 
+    multi_cassette_layout = register_multi_cassette_page(app)
+
     # ═══════════ LAYOUT ═══════════
 
     def _header() -> dbc.Row:
@@ -1746,10 +1749,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             style={"width": "70%"},
                         ),
                         dbc.Button(
-                            "Multiple Cassette Analysis (coming soon)",
+                            "Multiple Cassette Analysis",
                             id="btn-landing-cross",
-                            color="secondary",
-                            disabled=True,
+                            color="info",
+                            href="/multiple-cassette",
                             className="mx-auto",
                             style={"width": "70%"},
                         ),
@@ -1781,6 +1784,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _render_page(pathname: str):
         if pathname == "/analysis":
             return analysis_layout
+        if pathname == "/multiple-cassette":
+            return multi_cassette_layout
         if pathname == "/dimensional-cleaning":
             return dim_clean_layout
         if pathname == "/tensile-cleaning":
