@@ -11,7 +11,6 @@ from __future__ import annotations
 import base64
 from dataclasses import asdict
 from io import BytesIO
-from pathlib import Path
 from typing import Iterable
 
 import dash
@@ -24,6 +23,7 @@ from dash.exceptions import PreventUpdate
 from ..analysis import METRIC_LABELS, build_stats, long_to_wide
 from ..io.config import Condition
 from ..plots import make_violin_grid
+from .excel import to_excel_bytes
 
 
 def _b64_to_bytes(content: str) -> bytes:
@@ -42,15 +42,8 @@ def _render_plot_component(fig, *, class_name: str | None = None, alt: str = "Pl
     )
 
 
-def _condition_label(filename: str, condition: str) -> str:
-    stem = Path(filename).stem
-    return f"{condition} ({stem})"
-
-
-def _strip_source(label: str) -> str:
-    if " (" in label and label.endswith(")"):
-        return label.rsplit(" (", 1)[0]
-    return label
+def _condition_label(_: str, condition: str) -> str:
+    return condition
 
 
 def _load_metrics_df(raw: bytes) -> pd.DataFrame:
@@ -265,6 +258,7 @@ def register_multi_cassette_page(app: dash.Dash):
 
         selectors = []
         control_options: list[dict] = []
+        seen_controls: set[str] = set()
 
         for idx, entry in enumerate(files_data):
             df = pd.DataFrame(entry["records"])
@@ -293,12 +287,12 @@ def register_multi_cassette_page(app: dash.Dash):
                 )
             )
             for opt in options:
-                control_options.append(
-                    {
-                        "label": _condition_label(entry["name"], opt["value"].split("::", 1)[1]),
-                        "value": _condition_label(entry["name"], opt["value"].split("::", 1)[1]),
-                    }
-                )
+                cond_name = _condition_label(entry["name"], opt["value"].split("::", 1)[1])
+                if cond_name in seen_controls:
+                    continue
+
+                seen_controls.add(cond_name)
+                control_options.append({"label": cond_name, "value": cond_name})
 
         control_value = control_options[0]["value"] if control_options else None
         return selectors, control_options, control_value
@@ -344,12 +338,11 @@ def register_multi_cassette_page(app: dash.Dash):
         try:
             flat_selections = [val for group in (selections or []) for val in (group or [])]
             summary_df, conds = _build_summary(files_data, flat_selections, control_value)
-            legend_labels = {cond.name: _strip_source(cond.name) for cond in conds}
             fig = make_violin_grid(
                 summary_df,
                 conds,
                 stacked=True,
-                legend_labels=legend_labels,
+                legend_position="right",
             )
         except Exception as exc:  # pragma: no cover - user feedback
             return [], None, str(exc), "danger", True
@@ -379,11 +372,9 @@ def register_multi_cassette_page(app: dash.Dash):
         control_name = next(c.name for c in conds if c.is_control)
         wide = long_to_wide(long, summary_df, control_name, metrics_od)
 
-        buf = BytesIO()
-        with pd.ExcelWriter(buf, engine="xlsxwriter") as xls:
-            wide.to_excel(xls, sheet_name="Stats")
+        excel_bytes = to_excel_bytes({"Stats": wide})
 
-        return dcc.send_bytes(buf.getvalue(), fname or "stats.xlsx")
+        return dcc.send_bytes(excel_bytes, fname or "stats.xlsx")
 
     return layout
 

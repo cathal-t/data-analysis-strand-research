@@ -138,6 +138,7 @@ def make_violin_grid(
     *,
     stacked: bool = False,
     legend_labels: dict[str, str] | None = None,
+    legend_position: str = "bottom",
 ) -> go.Figure:
     """
     Grid of metric distributions – visually identical to the Jupyter notebook by default.
@@ -152,6 +153,9 @@ def make_violin_grid(
         When ``True``, render one metric per row (single-column layout).
     legend_labels
         Optional mapping to override legend labels per condition name.
+    legend_position
+        Where to position the legend. ``"bottom"`` matches the original notebook;
+        ``"right"`` moves it to a vertical block to the right of the plots.
     """
     # ---- palette identical to notebook ------------------------------------
     metrics = METRIC_LABELS
@@ -217,13 +221,43 @@ def make_violin_grid(
     # ---- layout identical to notebook ------------------------------------
     control_name = next(c.name for c in conds if c.is_control)
     height = 300 * n_rows if stacked else 950
+    width = 1250 if legend_position == "right" else 1150
     margin_bottom = 230 if stacked else 180
+    margin_right = 220 if legend_position == "right" else 40
     legend_y = -0.22 if stacked else -0.18
+
+    legend_cfg = dict(
+        title="Conditions",
+        bgcolor="rgba(255,255,255,0.92)",
+        borderwidth=1,
+        itemsizing="constant",
+        itemwidth=180,
+        tracegroupgap=10,
+        font=dict(size=12),
+    )
+
+    if legend_position == "right":
+        margin_bottom = 120 if stacked else 120
+        legend_cfg.update(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02,
+        )
+    else:
+        legend_cfg.update(
+            orientation="h",
+            yanchor="bottom",
+            y=legend_y,
+            xanchor="center",
+            x=0.5,
+        )
     fig.update_layout(
         template="plotly_white",
         height=height,
-        width=1150,
-        margin=dict(t=90, l=70, r=40, b=margin_bottom),
+        width=width,
+        margin=dict(t=90, l=70, r=margin_right, b=margin_bottom),
         title=dict(
             text=f"<b>Mechanical metric distributions</b><br>"
                  f"<sup>Control = {control_name}</sup>",
@@ -232,20 +266,7 @@ def make_violin_grid(
             xanchor="center",
             font=dict(size=18),
         ),
-        legend=dict(
-            title="Conditions",
-            orientation="h",
-            yanchor="bottom",
-            y=legend_y,
-            xanchor="center",
-            x=0.5,
-            bgcolor="rgba(255,255,255,0.92)",
-            borderwidth=1,
-            itemsizing="constant",
-            itemwidth=180,
-            tracegroupgap=10,
-            font=dict(size=12),
-        ),
+        legend=legend_cfg,
     )
 
     return fig
