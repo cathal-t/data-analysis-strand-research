@@ -47,6 +47,14 @@ def _condition_label(_: str, condition: str) -> str:
     return condition
 
 
+def _metric_labels_from_summary(summary_df: pd.DataFrame) -> OrderedDict[str, str]:
+    return OrderedDict(
+        (col, METRIC_LABELS[col])
+        for col in summary_df.columns
+        if col not in ("Slot", "Condition") and col in METRIC_LABELS
+    )
+
+
 def _load_metrics_df(raw: bytes) -> pd.DataFrame:
     buf = BytesIO(raw)
     try:
@@ -339,11 +347,13 @@ def register_multi_cassette_page(app: dash.Dash):
         try:
             flat_selections = [val for group in (selections or []) for val in (group or [])]
             summary_df, conds = _build_summary(files_data, flat_selections, control_value)
+            metrics_od = _metric_labels_from_summary(summary_df)
             fig = make_violin_grid(
                 summary_df,
                 conds,
                 stacked=True,
                 legend_position="right",
+                metrics=metrics_od,
             )
         except Exception as exc:  # pragma: no cover - user feedback
             return [], None, str(exc), "danger", True
@@ -368,11 +378,7 @@ def register_multi_cassette_page(app: dash.Dash):
 
         summary_df = pd.DataFrame(summary_payload["summary"])
         conds = [Condition(**c) for c in summary_payload["conditions"]]
-        metrics_od = OrderedDict(
-            (col, METRIC_LABELS[col])
-            for col in summary_df.columns
-            if col not in ("Slot", "Condition")
-        )
+        metrics_od = _metric_labels_from_summary(summary_df)
         long = build_stats(summary_df, conds, metrics_od)
         control_name = next(c.name for c in conds if c.is_control)
         wide = long_to_wide(long, summary_df, control_name, metrics_od)
