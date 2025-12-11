@@ -132,13 +132,30 @@ def make_overlay(
 
 # ────────────────────────────────────────────────────────────────────
 # Make 3 × 2 violin grid — identical to the original notebook
-def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Figure:
+def make_violin_grid(
+    summary_df: pd.DataFrame,
+    conds: list[Condition],
+    *,
+    stacked: bool = False,
+    legend_labels: dict[str, str] | None = None,
+) -> go.Figure:
     """
-    3 × 2 grid of metric distributions – visually identical to the Jupyter notebook.
+    Grid of metric distributions – visually identical to the Jupyter notebook by default.
+
+    Parameters
+    ----------
+    summary_df
+        Tidy DataFrame of metrics with a ``Condition`` column matching ``conds``.
+    conds
+        Ordered list of conditions (legend order follows this).
+    stacked
+        When ``True``, render one metric per row (single-column layout).
+    legend_labels
+        Optional mapping to override legend labels per condition name.
     """
     # ---- palette identical to notebook ------------------------------------
     metrics = METRIC_LABELS
-    n_rows, n_cols = 3, 2
+    n_rows, n_cols = (len(metrics), 1) if stacked else (3, 2)
 
     cond_names = [c.name for c in conds]
     palette = _palette_hex(len(cond_names))
@@ -148,8 +165,8 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
         rows=n_rows,
         cols=n_cols,
         subplot_titles=list(metrics.values()),
-        horizontal_spacing=0.11,
-        vertical_spacing=0.13,
+        horizontal_spacing=0.11 if not stacked else 0.08,
+        vertical_spacing=0.13 if not stacked else 0.09,
         shared_xaxes=True,
     )
 
@@ -181,13 +198,14 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
 
     # ---- consolidated legend (markers only) ------------------------------
     for cond, col_hex in color_lut.items():
+        legend_name = legend_labels.get(cond, cond) if legend_labels else cond
         fig.add_trace(
             go.Scatter(
                 x=[None],
                 y=[None],
                 mode="markers",
                 marker=dict(size=10, color=col_hex),
-                name=cond,
+                name=legend_name,
                 legendgroup=cond,
                 showlegend=True,
                 hoverinfo="skip",
@@ -198,11 +216,14 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
 
     # ---- layout identical to notebook ------------------------------------
     control_name = next(c.name for c in conds if c.is_control)
+    height = 300 * n_rows if stacked else 950
+    margin_bottom = 230 if stacked else 180
+    legend_y = -0.22 if stacked else -0.18
     fig.update_layout(
         template="plotly_white",
-        height=950,
+        height=height,
         width=1150,
-        margin=dict(t=90, l=70, r=40, b=180),
+        margin=dict(t=90, l=70, r=40, b=margin_bottom),
         title=dict(
             text=f"<b>Mechanical metric distributions</b><br>"
                  f"<sup>Control = {control_name}</sup>",
@@ -215,7 +236,7 @@ def make_violin_grid(summary_df: pd.DataFrame, conds: list[Condition]) -> go.Fig
             title="Conditions",
             orientation="h",
             yanchor="bottom",
-            y=-0.18,
+            y=legend_y,
             xanchor="center",
             x=0.5,
             bgcolor="rgba(255,255,255,0.92)",

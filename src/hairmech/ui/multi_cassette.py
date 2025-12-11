@@ -47,6 +47,12 @@ def _condition_label(filename: str, condition: str) -> str:
     return f"{condition} ({stem})"
 
 
+def _strip_source(label: str) -> str:
+    if " (" in label and label.endswith(")"):
+        return label.rsplit(" (", 1)[0]
+    return label
+
+
 def _load_metrics_df(raw: bytes) -> pd.DataFrame:
     buf = BytesIO(raw)
     try:
@@ -338,7 +344,13 @@ def register_multi_cassette_page(app: dash.Dash):
         try:
             flat_selections = [val for group in (selections or []) for val in (group or [])]
             summary_df, conds = _build_summary(files_data, flat_selections, control_value)
-            fig = make_violin_grid(summary_df, conds)
+            legend_labels = {cond.name: _strip_source(cond.name) for cond in conds}
+            fig = make_violin_grid(
+                summary_df,
+                conds,
+                stacked=True,
+                legend_labels=legend_labels,
+            )
         except Exception as exc:  # pragma: no cover - user feedback
             return [], None, str(exc), "danger", True
 
