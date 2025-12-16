@@ -170,6 +170,29 @@ def test_parse_gpdsr_mapping_skips_tagged_rows(tmp_path):
     assert deduped == []
 
 
+def test_parse_gpdsr_mapping_handles_tagged_out_slot(tmp_path):
+    gpdsr_path = tmp_path / "tagged_out_gpdsr.txt"
+    gpdsr_path.write_text(
+        "\n".join(
+            [
+                "Summary Data Ver: 1.0",
+                "Source File: demo",
+                "Record\tSample\tDescription\tOther",
+                "57\t57\tSlot 57 : FDAS770 Double-Ended\tfoo",
+                "58\t\tTag out\t",
+                "59\t1\tSlot 58 : FDAS770 Double-Ended\tbar",
+                "60\t2\tSlot 59 : FDAS770 Double-Ended\tbaz",
+            ]
+        )
+    )
+
+    mapping, deduped = app._parse_gpdsr_mapping(gpdsr_path)
+
+    assert list(mapping["Record"]) == [57, 59, 60]
+    assert list(mapping["Slot"]) == [57, 58, 59]
+    assert deduped == []
+
+
 def test_parse_gpdsr_mapping_errors_on_duplicate_records(tmp_path):
     gpdsr_path = tmp_path / "bad_gpdsr.txt"
     gpdsr_path.write_text(
