@@ -1564,36 +1564,23 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         ),
                         dcc.Store(id="dim-cleaning-data"),
                         dcc.Store(id="dim-export-directory"),
-                        dcc.Loading(
-                            id="dim-cleaning-loading",
-                            type="default",
-                            loading_text="Updating...",
-                            children=[
-                                dbc.Alert(
-                                    id="dim-cleaning-alert", is_open=False, className="mt-3"
+                        dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
+                        html.Div(id="dim-cleaning-plots", className="mt-4"),
+                        html.Div(
+                            [
+                                dbc.Button(
+                                    "Generate List of Remove Slices",
+                                    id="dim-generate-remove-list",
+                                    color="primary",
+                                    size="lg",
+                                    className="w-100",
                                 ),
-                                html.Div(id="dim-cleaning-plots", className="mt-4"),
-                                html.Div(
-                                    [
-                                        dbc.Button(
-                                            "Generate List of Remove Slices",
-                                            id="dim-generate-remove-list",
-                                            color="primary",
-                                            size="lg",
-                                            className="w-100",
-                                        ),
-                                        html.Div(
-                                            id="dim-removed-summary-message", className="mt-3"
-                                        ),
-                                        html.Div(
-                                            id="dim-removed-summary-table", className="mt-3"
-                                        ),
-                                    ],
-                                    id="dim-removed-summary-container",
-                                    className="mt-4",
-                                    style={"display": "none"},
-                                ),
+                                html.Div(id="dim-removed-summary-message", className="mt-3"),
+                                html.Div(id="dim-removed-summary-table", className="mt-3"),
                             ],
+                            id="dim-removed-summary-container",
+                            className="mt-4",
+                            style={"display": "none"},
                         ),
                     ]
                 ),
@@ -1654,32 +1641,21 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             },
                             className="mb-3",
                         ),
-                        dcc.Loading(
-                            id="ten-cleaning-loading",
-                            type="default",
-                            loading_text="Updating...",
-                            children=[
-                                dbc.Alert(
-                                    id="ten-cleaning-alert",
-                                    is_open=False,
-                                    className="mt-3",
-                                ),
-                                html.Div(id="ten-cleaning-result", className="mt-4"),
-                                dcc.Store(id="ten-cleaning-export"),
-                                dbc.Button(
-                                    "Generate Tensile_Data.txt",
-                                    id="ten-cleaning-generate",
-                                    color="primary",
-                                    className="mt-3",
-                                    disabled=True,
-                                ),
-                                dbc.Alert(
-                                    id="ten-cleaning-export-alert",
-                                    is_open=False,
-                                    className="mt-3",
-                                    style={"display": "none"},
-                                ),
-                            ],
+                        dbc.Alert(id="ten-cleaning-alert", is_open=False, className="mt-3"),
+                        html.Div(id="ten-cleaning-result", className="mt-4"),
+                        dcc.Store(id="ten-cleaning-export"),
+                        dbc.Button(
+                            "Generate Tensile_Data.txt",
+                            id="ten-cleaning-generate",
+                            color="primary",
+                            className="mt-3",
+                            disabled=True,
+                        ),
+                        dbc.Alert(
+                            id="ten-cleaning-export-alert",
+                            is_open=False,
+                            className="mt-3",
+                            style={"display": "none"},
                         ),
                     ]
                 ),
