@@ -72,11 +72,19 @@ def build_summary(
         if df_proc.empty:
             continue
 
+        record_id: int | None = None
+        try:
+            record_id = int(df_raw["Record"].dropna().iat[0])  # type: ignore[arg-type]
+        except (KeyError, IndexError, TypeError, ValueError):
+            record_id = None
+
         uts, bs, bp, E = TensileTest.metrics(df_proc)
         rows.append(
             {
                 "Slot": slot,
+                "Record": record_id,
                 "Condition": slot_to_cond[slot],
+                "UTS_MPa": uts,
                 "Break_Stress_MPa": bs,
                 "Break_Strain_%": bp,
                 "Elastic_Modulus_GPa": E,
