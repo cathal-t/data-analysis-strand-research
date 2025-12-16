@@ -727,6 +727,7 @@ class _SlotMappedTensile(TensileTest):
     def __init__(self, base: TensileTest, df: pd.DataFrame):
         self.df = df
         self.is_mpa = base.is_mpa
+        self.mode = getattr(base, "mode", None)
 
     def per_slot(self):  # type: ignore[override]
         for slot, grp in self.df.groupby("Slot", sort=True):

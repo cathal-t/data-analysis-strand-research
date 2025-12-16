@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from hairmech.ui import app
+from hairmech.tensile import TensileTest
 
 
 def test_trim_gmf_pivot_resets_origin_and_trims_rows():
@@ -101,6 +102,28 @@ def test_parse_export_directory_rejects_relative_path():
 def test_parse_export_directory_requires_value(value):
     with pytest.raises(ValueError):
         app._parse_export_directory(value)
+
+
+def test_slot_mapped_tensile_preserves_mode_for_stress():
+    base = TensileTest.__new__(TensileTest)
+    base.df = pd.DataFrame(
+        {"Record": [1], "Strain_pct": [50.0], "raw_stress": [2.0]}
+    )
+    base.is_mpa = False
+    base.mode = "N"
+
+    mapped, unmapped = app._remap_tensile_slots(base, None)
+
+    assert unmapped == []
+
+    slot, df_slot = next(mapped.per_slot())
+    assert slot == 1
+
+    result = mapped.stress_strain(df_slot, area_um2=200.0)
+    expected_stress = 2.0 / (200.0 * 1e-12)
+
+    assert result["strain"].iloc[0] == pytest.approx(0.5)
+    assert result["stress_Pa"].iloc[0] == pytest.approx(expected_stress)
 
 
 def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
