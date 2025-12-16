@@ -590,7 +590,7 @@ def _render_gpdsr_feedback(feedback: dict[str, object] | None) -> list:
     if infos:
         alerts.append(
             dbc.Alert(
-                [html.H6("GPDSR info", className="mb-2"), html.Ul([html.Li(msg) for msg in infos], className="mb-0")],
+                [html.H6("Slot mapping info", className="mb-2"), html.Ul([html.Li(msg) for msg in infos], className="mb-0")],
                 color="info",
                 className="mb-3",
             )
@@ -598,7 +598,7 @@ def _render_gpdsr_feedback(feedback: dict[str, object] | None) -> list:
     if warnings:
         alerts.append(
             dbc.Alert(
-                [html.H6("GPDSR warnings", className="mb-2"), html.Ul([html.Li(msg) for msg in warnings], className="mb-0")],
+                [html.H6("Slot mapping warnings", className="mb-2"), html.Ul([html.Li(msg) for msg in warnings], className="mb-0")],
                 color="warning",
                 className="mb-3",
             )
@@ -741,7 +741,33 @@ def _build_gpdsr_mapping(gpdsr_b64: str) -> tuple[list[tuple[int, int]], list[in
         df, deduped_slots = _parse_gpdsr_mapping(Path(tmp.name))
 
     mapping = [(int(row.Record), int(row.Slot)) for row in df.itertuples(index=False)]
+    deduped_slots = [int(slot) for slot in deduped_slots]
     return mapping, deduped_slots
+
+
+def _build_tensile_ascii_mapping(
+    ascii_b64: str,
+) -> tuple[list[tuple[int, int]], list[int]]:
+    raw_bytes = _b64_to_bytes(ascii_b64)
+    with tempfile.NamedTemporaryFile(delete=False, suffix="_ascii.txt") as tmp:
+        tmp.write(raw_bytes)
+        tmp.flush()
+        df = _parse_tensile_ascii(Path(tmp.name))
+
+    if df.empty:
+        return [], []
+
+    mapping_df = df[["Record", "Slot"]].copy()
+    mapping_df["Record"] = pd.to_numeric(mapping_df["Record"], errors="coerce")
+    mapping_df["Slot"] = pd.to_numeric(mapping_df["Slot"], errors="coerce")
+    mapping_df = mapping_df.dropna(subset=["Record", "Slot"])
+    mapping_df = mapping_df.astype({"Record": int, "Slot": int})
+
+    duplicate_records = sorted(mapping_df.loc[mapping_df["Record"].duplicated(), "Record"].unique())
+    mapping_df = mapping_df.drop_duplicates("Record", keep="last")
+
+    mapping = [(int(row.Record), int(row.Slot)) for row in mapping_df.itertuples(index=False)]
+    return mapping, duplicate_records
 
 
 def _remap_tensile_slots(
@@ -766,6 +792,29 @@ def _remap_tensile_slots(
 
     mapped = _SlotMappedTensile(tensile, df)
     return mapped, unmapped
+
+
+def _normalise_slot_map(mapping_data: object) -> dict[int, int] | None:
+    if isinstance(mapping_data, dict):
+        try:
+            return {int(rec): int(slot) for rec, slot in mapping_data.items()}
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            return None
+
+    if isinstance(mapping_data, list):
+        slot_map: dict[int, int] = {}
+        for entry in mapping_data:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                continue
+            try:
+                rec_val = int(entry[0])
+                slot_val = int(entry[1])
+            except (TypeError, ValueError):
+                continue
+            slot_map[rec_val] = slot_val
+        return slot_map or None
+
+    return None
 
 
 def _looks_like_absolute(path_str: str) -> bool:
@@ -1397,6 +1446,22 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 multiple=False,
                             ),
                             html.Small(id="ten-msg", className="text-muted"),
+                        ],
+                        width="auto",
+                    ),
+                    dbc.Col(
+                        [
+                            dcc.Upload(
+                                id="upload-ten-ascii",
+                                accept=".txt",
+                                children=dbc.Button(
+                                    "Upload Tensile ASCII (optional)",
+                                    color="secondary",
+                                    id="btn-ten-ascii",
+                                ),
+                                multiple=False,
+                            ),
+                            html.Small(id="ten-ascii-msg", className="text-muted"),
                         ],
                         width="auto",
                     ),
@@ -2660,6 +2725,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         return ("success", f"Loaded: {filename}") if contents else ("primary", "")
 
     @app.callback(
+        Output("btn-ten-ascii", "color"), Output("ten-ascii-msg", "children"),
+        Input("upload-ten-ascii", "contents"), State("upload-ten-ascii", "filename"),
+        prevent_initial_call=True,
+    )
+    def _ten_ascii_status(contents, filename):
+        return ("success", f"Loaded: {filename}") if contents else ("secondary", "Optional: tensile ASCII export")
+
+    @app.callback(
         Output("btn-removed", "color"),
         Output("removed-msg", "children"),
         Input("upload-removed", "contents"),
@@ -2684,20 +2757,30 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("cond-table", "data", allow_duplicate=True),
         Input("upload-dim", "contents"),
         Input("upload-ten", "contents"),
+        Input("upload-ten-ascii", "contents"),
         Input("upload-gpdsr", "contents"),
         prevent_initial_call=True,
     )
-    def _prime_table(dim_b64, ten_b64, gpdsr_b64):
+    def _prime_table(dim_b64, ten_b64, ten_ascii_b64, gpdsr_b64):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
         dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64))
         areas = dim_data.map
         tensile = _bytes_to_ten(_b64_to_bytes(ten_b64))
+        ascii_map: dict[int, int] | None = None
+        if ten_ascii_b64:
+            try:
+                ascii_mapping, _ = _build_tensile_ascii_mapping(ten_ascii_b64)
+                ascii_map = {int(r): int(s) for r, s in ascii_mapping}
+                tensile, _ = _remap_tensile_slots(tensile, ascii_map)
+            except Exception as exc:
+                raise ConfigError(str(exc)) from exc
         if gpdsr_b64:
             try:
                 mapping, _ = _build_gpdsr_mapping(gpdsr_b64)
                 slot_map = {int(r): int(s) for r, s in mapping}
-                tensile, _ = _remap_tensile_slots(tensile, slot_map)
+                if ascii_map is None:
+                    tensile, _ = _remap_tensile_slots(tensile, slot_map)
             except Exception as exc:
                 raise ConfigError(str(exc)) from exc
         total = _max_slot(areas, tensile)
@@ -2751,13 +2834,26 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         State("cond-table", "data"),
         State("upload-dim", "contents"),
         State("upload-ten", "contents"),
+        State("upload-ten-ascii", "contents"),
+        State("upload-ten-ascii", "filename"),
         State("upload-removed", "contents"),
         State("upload-removed", "filename"),
         State("upload-gpdsr", "contents"),
         State("upload-gpdsr", "filename"),
         prevent_initial_call=True,
     )
-    def _cache(_, rows, dim_b64, ten_b64, removed_b64, removed_name, gpdsr_b64, gpdsr_name):
+    def _cache(
+        _,
+        rows,
+        dim_b64,
+        ten_b64,
+        ten_ascii_b64,
+        ten_ascii_name,
+        removed_b64,
+        removed_name,
+        gpdsr_b64,
+        gpdsr_name,
+    ):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
 
@@ -2783,6 +2879,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         removal_map: dict[int, set[int]] | None = None
         removal_feedback: dict[str, object] | None = None
         gpdsr_payload: dict[str, object] | None = None
+        tensile_ascii_payload: dict[str, object] | None = None
 
         if gpdsr_b64:
             try:
@@ -2808,6 +2905,21 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if removal_entries:
             removal_feedback = _build_removed_feedback_data(removal_entries, dim_data)
 
+        ascii_mapping: list[tuple[int, int]] | None = None
+        ascii_deduped: list[int] = []
+        if ten_ascii_b64:
+            try:
+                ascii_mapping, ascii_deduped = _build_tensile_ascii_mapping(ten_ascii_b64)
+            except Exception as exc:
+                raise ConfigError(str(exc)) from exc
+            ascii_deduped = [int(rec) for rec in ascii_deduped]
+            tensile_ascii_payload = {
+                "b64": ten_ascii_b64,
+                "filename": ten_ascii_name,
+                "mapping": ascii_mapping,
+                "deduped_records": ascii_deduped,
+            }
+
         payload: dict[str, object] = {
             "dim_b64": dim_b64,
             "ten_b64": ten_b64,
@@ -2823,6 +2935,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         if gpdsr_payload:
             payload["gpdsr"] = gpdsr_payload
+
+        if tensile_ascii_payload:
+            payload["tensile_ascii"] = tensile_ascii_payload
 
         return json.dumps(payload)
 
@@ -2849,25 +2964,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         gpdsr_info = data.get("gpdsr") or {}
         mapping_data = gpdsr_info.get("mapping")
-        slot_map: dict[int, int] | None = None
-        if isinstance(mapping_data, dict):
-            try:
-                slot_map = {int(rec): int(slot) for rec, slot in mapping_data.items()}
-            except (TypeError, ValueError):  # pragma: no cover - defensive
-                slot_map = None
-        elif isinstance(mapping_data, list):
-            slot_map = {}
-            for entry in mapping_data:
-                if not isinstance(entry, (list, tuple)) or len(entry) < 2:
-                    continue
-                try:
-                    rec_val = int(entry[0])
-                    slot_val = int(entry[1])
-                except (TypeError, ValueError):
-                    continue
-                slot_map[rec_val] = slot_val
-            if not slot_map:
-                slot_map = None
+        slot_map = _normalise_slot_map(mapping_data)
+
+        ascii_info = data.get("tensile_ascii") or {}
+        ascii_map = _normalise_slot_map(ascii_info.get("mapping"))
+        ascii_deduped = ascii_info.get("deduped_records") or []
 
         deduped_slots = gpdsr_info.get("deduped_slots") or []
         if deduped_slots:
@@ -2877,16 +2978,28 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 f"for slots: {slot_list}."
             )
 
+        if ascii_deduped:
+            deduped_list = ", ".join(str(r) for r in ascii_deduped)
+            gpdsr_feedback["infos"].append(
+                "Duplicate Record entries detected in tensile ASCII mapping. "
+                f"Keeping the last occurrence for Records: {deduped_list}."
+            )
+
         tensile_raw = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
-        tensile, unmapped_records = _remap_tensile_slots(tensile_raw, slot_map)
-        if slot_map is None:
+        mapping_for_tensile = ascii_map or slot_map
+        tensile, unmapped_records = _remap_tensile_slots(tensile_raw, mapping_for_tensile)
+        if mapping_for_tensile is None:
             gpdsr_feedback["warnings"].append(
                 "GPDSR mapping not supplied; using Record numbers as Slot IDs."
             )
         elif unmapped_records:
             missing = ", ".join(str(r) for r in unmapped_records)
             gpdsr_feedback["warnings"].append(
-                f"Records not found in GPDSR mapping; using Record numbers as slots for: {missing}."
+                f"Records not found in slot mapping; using Record numbers as slots for: {missing}."
+            )
+        if ascii_map:
+            gpdsr_feedback["infos"].append(
+                "Slot numbers derived from tensile ASCII export."
             )
 
         conds = [Condition(**c) for c in data["conds"]]
