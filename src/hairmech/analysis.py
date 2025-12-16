@@ -84,7 +84,7 @@ def build_summary(
                 "Slot": slot,
                 "Record": record_id,
                 "Condition": slot_to_cond[slot],
-                "UTS_MPa": uts,
+                #"UTS_MPa": uts,
                 "Break_Stress_MPa": bs,
                 "Break_Strain_%": bp,
                 "Elastic_Modulus_GPa": E,
