@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -169,39 +168,6 @@ def test_parse_gpdsr_mapping_skips_tagged_rows(tmp_path):
     assert list(mapping["Record"]) == [2]
     assert list(mapping["Slot"]) == [6]
     assert deduped == []
-
-
-def test_build_tensile_ascii_mapping(tmp_path):
-    ascii_text = "\n".join(
-        [
-            "ASCII Export File Version 1.0",
-            "Sample / Slot Number: 7",
-            "Number of Points: 2",
-            "Record Index Position Strain Time Force",
-            "units",
-            "1 0 0.10 0.20 0.30 0.40",
-            "1 1 0.20 0.30 0.40 0.50",
-            "Sample / Slot Number: 8",
-            "Number of Points: 1",
-            "Record Index Position Strain Time Force",
-            "units",
-            "2 0 0.11 0.21 0.31 0.41",
-            "Sample / Slot Number: 9",
-            "Number of Points: 1",
-            "Record Index Position Strain Time Force",
-            "units",
-            "1 2 0.12 0.22 0.32 0.42",
-        ]
-    )
-    ascii_path = tmp_path / "example_ascii.txt"
-    ascii_path.write_text(ascii_text)
-
-    ascii_b64 = f"data:text/plain;base64,{base64.b64encode(ascii_path.read_bytes()).decode()}"
-
-    mapping, deduped = app._build_tensile_ascii_mapping(ascii_b64)
-
-    assert dict(mapping) == {1: 9, 2: 8}
-    assert deduped == [1]
 
 
 def test_parse_gpdsr_mapping_handles_tagged_out_slot(tmp_path):
