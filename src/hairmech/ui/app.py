@@ -83,11 +83,20 @@ def _overlay_fig(areas, tensile, conds):
     for slot, df in tensile.per_slot():
         if slot not in areas or slot not in slot_to_cond:
             continue
+        record_ids = (
+            df["Record"].dropna().unique().astype(int).tolist()
+            if "Record" in df.columns
+            else []
+        )
+        record_label = ", ".join(str(r) for r in sorted(record_ids)) if record_ids else "?"
+        record_value = record_ids[0] if len(record_ids) == 1 else None
         proc = tensile.stress_strain(df, areas[slot])
         for st, sp in zip(proc["strain"], proc["stress_Pa"]):
             rows.append(
                 {
                     "Slot": slot,
+                    "Record": record_value,
+                    "Record_Label": record_label,
                     "Condition": slot_to_cond[slot],
                     "Strain": st,
                     "Stress_MPa": sp / 1e6,
@@ -570,6 +579,33 @@ def _render_removed_feedback(feedback: dict[str, object] | None) -> list:
     return alerts
 
 
+def _render_gpdsr_feedback(feedback: dict[str, object] | None) -> list:
+    if not feedback:
+        return []
+
+    warnings = feedback.get("warnings") or []
+    infos = feedback.get("infos") or []
+
+    alerts: list = []
+    if infos:
+        alerts.append(
+            dbc.Alert(
+                [html.H6("GPDSR info", className="mb-2"), html.Ul([html.Li(msg) for msg in infos], className="mb-0")],
+                color="info",
+                className="mb-3",
+            )
+        )
+    if warnings:
+        alerts.append(
+            dbc.Alert(
+                [html.H6("GPDSR warnings", className="mb-2"), html.Ul([html.Li(msg) for msg in warnings], className="mb-0")],
+                color="warning",
+                className="mb-3",
+            )
+        )
+    return alerts
+
+
 def _parse_gpdsr_mapping(gpdsr_path: Path) -> tuple[pd.DataFrame, list[int]]:
     """Parse a *_gpdsr.txt file into a Record→Slot mapping.
 
@@ -682,6 +718,53 @@ def _parse_gpdsr_mapping(gpdsr_path: Path) -> tuple[pd.DataFrame, list[int]]:
 
     df = df.sort_values("Record").reset_index(drop=True)
     return df, deduped_slots
+
+
+class _SlotMappedTensile(TensileTest):
+    """Lightweight TensileTest wrapper that groups by Slot instead of Record."""
+
+    def __init__(self, base: TensileTest, df: pd.DataFrame):
+        self.df = df
+        self.is_mpa = base.is_mpa
+
+    def per_slot(self):  # type: ignore[override]
+        for slot, grp in self.df.groupby("Slot", sort=True):
+            yield int(slot), grp.reset_index(drop=True)
+
+
+def _build_gpdsr_mapping(gpdsr_b64: str) -> tuple[list[tuple[int, int]], list[int]]:
+    raw_bytes = _b64_to_bytes(gpdsr_b64)
+    with tempfile.NamedTemporaryFile(delete=False, suffix="_gpdsr.txt") as tmp:
+        tmp.write(raw_bytes)
+        tmp.flush()
+        df, deduped_slots = _parse_gpdsr_mapping(Path(tmp.name))
+
+    mapping = [(int(row.Record), int(row.Slot)) for row in df.itertuples(index=False)]
+    return mapping, deduped_slots
+
+
+def _remap_tensile_slots(
+    tensile: TensileTest, slot_map: dict[int, int] | None
+) -> tuple[TensileTest, list[int]]:
+    df = tensile.df.copy()
+    df["Slot"] = df["Record"].map(slot_map) if slot_map else df["Record"]
+
+    unmapped: list[int] = []
+    if slot_map:
+        missing_mask = df["Slot"].isna()
+        if missing_mask.any():
+            unmapped = sorted(df.loc[missing_mask, "Record"].dropna().unique().astype(int))
+            df.loc[missing_mask, "Slot"] = df.loc[missing_mask, "Record"]
+
+    df["Slot"] = pd.to_numeric(df["Slot"], errors="coerce")
+    try:
+        df["Slot"] = df["Slot"].astype(int)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        pass
+    df = df.dropna(subset=["Slot"])
+
+    mapped = _SlotMappedTensile(tensile, df)
+    return mapped, unmapped
 
 
 def _looks_like_absolute(path_str: str) -> bool:
@@ -1327,6 +1410,20 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 multiple=False,
                             ),
                             html.Small(id="removed-msg", className="text-muted"),
+                        ],
+                        width="auto",
+                    ),
+                    dbc.Col(
+                        [
+                            dcc.Upload(
+                                id="upload-gpdsr",
+                                accept=".txt",
+                                children=dbc.Button(
+                                    "Upload GPDSR", color="primary", id="btn-gpdsr"
+                                ),
+                                multiple=False,
+                            ),
+                            html.Small(id="gpdsr-msg", className="text-muted"),
                         ],
                         width="auto",
                     ),
@@ -2571,19 +2668,37 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _removed_status(contents, filename):
         return ("success", f"Loaded: {filename}") if contents else ("primary", "")
 
+    @app.callback(
+        Output("btn-gpdsr", "color"),
+        Output("gpdsr-msg", "children"),
+        Input("upload-gpdsr", "contents"),
+        State("upload-gpdsr", "filename"),
+        prevent_initial_call=True,
+    )
+    def _gpdsr_status(contents, filename):
+        return ("success", f"Loaded: {filename}") if contents else ("primary", "")
+
     # Prime table once both files uploaded
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("upload-dim", "contents"),
         Input("upload-ten", "contents"),
+        Input("upload-gpdsr", "contents"),
         prevent_initial_call=True,
     )
-    def _prime_table(dim_b64, ten_b64):
+    def _prime_table(dim_b64, ten_b64, gpdsr_b64):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
         dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64))
         areas = dim_data.map
         tensile = _bytes_to_ten(_b64_to_bytes(ten_b64))
+        if gpdsr_b64:
+            try:
+                mapping, _ = _build_gpdsr_mapping(gpdsr_b64)
+                slot_map = {int(r): int(s) for r, s in mapping}
+                tensile, _ = _remap_tensile_slots(tensile, slot_map)
+            except Exception as exc:
+                raise ConfigError(str(exc)) from exc
         total = _max_slot(areas, tensile)
         return [{"name": "Condition 1", "slot_start": 1, "slot_end": total, "is_control": TICK}]
 
@@ -2637,9 +2752,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         State("upload-ten", "contents"),
         State("upload-removed", "contents"),
         State("upload-removed", "filename"),
+        State("upload-gpdsr", "contents"),
+        State("upload-gpdsr", "filename"),
         prevent_initial_call=True,
     )
-    def _cache(_, rows, dim_b64, ten_b64, removed_b64, removed_name):
+    def _cache(_, rows, dim_b64, ten_b64, removed_b64, removed_name, gpdsr_b64, gpdsr_name):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
 
@@ -2664,6 +2781,19 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         removal_entries: list[dict[str, object]] = []
         removal_map: dict[int, set[int]] | None = None
         removal_feedback: dict[str, object] | None = None
+        gpdsr_payload: dict[str, object] | None = None
+
+        if gpdsr_b64:
+            try:
+                mapping, deduped_slots = _build_gpdsr_mapping(gpdsr_b64)
+            except Exception as exc:
+                raise ConfigError(str(exc)) from exc
+            gpdsr_payload = {
+                "b64": gpdsr_b64,
+                "filename": gpdsr_name,
+                "mapping": mapping,
+                "deduped_slots": deduped_slots,
+            }
 
         if removed_b64:
             try:
@@ -2690,11 +2820,20 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 "filename": removed_name,
             }
 
+        if gpdsr_payload:
+            payload["gpdsr"] = gpdsr_payload
+
         return json.dumps(payload)
 
     def _analysis_inputs(payload: str | None):
+        gpdsr_feedback = {"warnings": [], "infos": []}
+
         if not payload:
-            return default_areas, default_tensile, default_conds, None
+            mapped_tensile, _ = _remap_tensile_slots(default_tensile, None)
+            gpdsr_feedback["warnings"].append(
+                "GPDSR mapping not supplied; using Record numbers as Slot IDs."
+            )
+            return default_areas, mapped_tensile, default_conds, None, gpdsr_feedback
 
         data = json.loads(payload)
         removed_info = data.get("removed") or {}
@@ -2707,10 +2846,54 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if entries and not feedback:
             feedback = _build_removed_feedback_data(entries, dim_data)
 
-        tensile = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
+        gpdsr_info = data.get("gpdsr") or {}
+        mapping_data = gpdsr_info.get("mapping")
+        slot_map: dict[int, int] | None = None
+        if isinstance(mapping_data, dict):
+            try:
+                slot_map = {int(rec): int(slot) for rec, slot in mapping_data.items()}
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                slot_map = None
+        elif isinstance(mapping_data, list):
+            slot_map = {}
+            for entry in mapping_data:
+                if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                    continue
+                try:
+                    rec_val = int(entry[0])
+                    slot_val = int(entry[1])
+                except (TypeError, ValueError):
+                    continue
+                slot_map[rec_val] = slot_val
+            if not slot_map:
+                slot_map = None
+
+        deduped_slots = gpdsr_info.get("deduped_slots") or []
+        if deduped_slots:
+            slot_list = ", ".join(str(s) for s in deduped_slots)
+            gpdsr_feedback["infos"].append(
+                "Duplicate slot entries detected in GPDSR file. Keeping the highest Record "
+                f"for slots: {slot_list}."
+            )
+
+        tensile_raw = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
+        tensile, unmapped_records = _remap_tensile_slots(tensile_raw, slot_map)
+        if slot_map is None:
+            gpdsr_feedback["warnings"].append(
+                "GPDSR mapping not supplied; using Record numbers as Slot IDs."
+            )
+        elif unmapped_records:
+            missing = ", ".join(str(r) for r in unmapped_records)
+            gpdsr_feedback["warnings"].append(
+                f"Records not found in GPDSR mapping; using Record numbers as slots for: {missing}."
+            )
+
         conds = [Condition(**c) for c in data["conds"]]
 
-        return dim_data.map, tensile, conds, feedback
+        if not gpdsr_feedback["warnings"] and not gpdsr_feedback["infos"]:
+            gpdsr_feedback = None
+
+        return dim_data.map, tensile, conds, feedback, gpdsr_feedback
 
     # Plot
     @app.callback(
@@ -2719,7 +2902,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Input("exp-data", "data"),
     )
     def _draw(tab, payload):
-        areas, tensile, conds, feedback = _analysis_inputs(payload)
+        areas, tensile, conds, feedback, gpdsr_feedback = _analysis_inputs(payload)
         fig = (
             _overlay_fig(areas, tensile, conds)
             if tab == "overlay"
@@ -2742,6 +2925,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         alerts = _render_removed_feedback(feedback)
         if alerts:
             children.extend(alerts)
+        gpdsr_alerts = _render_gpdsr_feedback(gpdsr_feedback)
+        if gpdsr_alerts:
+            children.extend(gpdsr_alerts)
         return html.Div(children)
 
     # Download metrics
@@ -2755,7 +2941,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _dl_metrics(_, fname, payload):
         if not payload:
             raise PreventUpdate
-        areas, tensile, conds, _ = _analysis_inputs(payload)
+        areas, tensile, conds, _, _ = _analysis_inputs(payload)
         df = build_summary(areas, tensile, conds)
         return dcc.send_bytes(to_excel_bytes({"Metrics": df}), fname or "metrics.xlsx")
 
@@ -2770,11 +2956,13 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _dl_stats(_, fname, payload):
         if not payload:
             raise PreventUpdate
-        areas, tensile, conds, _ = _analysis_inputs(payload)
+        areas, tensile, conds, _, _ = _analysis_inputs(payload)
 
         summary = build_summary(areas, tensile, conds)
         metrics_od = OrderedDict(
-            (c, c.replace("_", " ")) for c in summary.columns if c not in ("Slot", "Condition")
+            (c, c.replace("_", " "))
+            for c in summary.columns
+            if c not in ("Slot", "Condition", "Record")
         )
         long = build_stats(summary, conds, metrics_od)
         control_name = next(c.name for c in conds if c.is_control)

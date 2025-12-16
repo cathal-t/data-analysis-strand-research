@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Dict, List, Sequence
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -58,6 +59,15 @@ def make_overlay(
 
     for slot, grp in curves_df.groupby("Slot"):
         cond = grp["Condition"].iat[0]
+        record_label = None
+        if "Record_Label" in grp.columns:
+            record_label = grp["Record_Label"].iat[0]
+        elif "Record" in grp.columns:
+            records = grp["Record"].dropna().unique()
+            if records.size:
+                record_label = ", ".join(str(int(rec)) for rec in sorted(records))
+
+        record_suffix = f" · record {record_label}" if record_label else ""
 
         # main curve --------------------------------------------------------
         fig.add_trace(
@@ -66,10 +76,10 @@ def make_overlay(
                 y=grp["Stress_MPa"],
                 mode="lines",
                 line=dict(color=colour[cond], width=1),
-                name=f"{cond} · slot {slot}",
+                name=f"{cond} · slot {slot}{record_suffix}",
                 legendgroup=cond,
                 hovertemplate=(
-                    f"{cond}<br>slot {slot}<br>"
+                    f"{cond}<br>slot {slot}{record_suffix}<br>"
                     "ε=%{x:.3f}<br>σ=%{y:.2f} MPa"
                 ),
             )
@@ -182,7 +192,28 @@ def make_violin_grid(
         r += 1
         c += 1
         for cond in cond_names:
-            vals = summary_df[summary_df["Condition"] == cond][key]
+            cond_df = summary_df[summary_df["Condition"] == cond]
+            vals = cond_df[key]
+
+            slots = cond_df.index.to_numpy()
+            records = (
+                cond_df["Record"].to_numpy()
+                if "Record" in cond_df.columns
+                else slots
+            )
+            customdata = None
+            hovertemplate = None
+            if len(vals):
+                try:
+                    customdata = np.stack((slots, records), axis=-1)
+                except Exception:  # pragma: no cover - defensive
+                    customdata = None
+
+            if customdata is not None:
+                hovertemplate = (
+                    "Slot %{customdata[0]} · Record %{customdata[1]}<br>"
+                    f"{ttl}: %{{y:.3f}}<extra>{cond}</extra>"
+                )
             fig.add_trace(
                 go.Violin(
                     y=vals,
@@ -195,6 +226,8 @@ def make_violin_grid(
                     points="all",
                     width=0.6,
                     pointpos=0,
+                    customdata=customdata,
+                    hovertemplate=hovertemplate,
                 ),
                 row=r,
                 col=c,
