@@ -70,11 +70,11 @@ def _set_log_level(enabled: bool) -> None:
     logger.setLevel(level)
 
 # ────────────── helper I/O ──────────────
-def _load_experiment(root: Path) -> Tuple[dict[int, float], TensileTest, List[Condition]]:
+def _load_experiment(root: Path) -> Tuple[DimensionalData, TensileTest, List[Condition]]:
     conds = load_config(root)
-    areas = DimensionalData(root / "Dimensional_Data.txt").map
+    dim_data = DimensionalData(root / "Dimensional_Data.txt")
     tensile = TensileTest(root / "Tensile_Data.txt")
-    return areas, tensile, conds
+    return dim_data, tensile, conds
 
 
 def _overlay_fig(areas, tensile, conds):
@@ -125,12 +125,14 @@ def _b64_to_bytes(content: str) -> bytes:
 
 
 def _bytes_to_dim(
-    raw: bytes, removed: dict[int, set[int]] | None = None
+    raw: bytes,
+    removed: dict[int, set[int]] | None = None,
+    slot_map: dict[int, int] | None = None,
 ) -> DimensionalData:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
         tmp.write(raw)
         tmp.flush()
-        return DimensionalData(Path(tmp.name), removed_slices=removed)
+        return DimensionalData(Path(tmp.name), removed_slices=removed, slot_map=slot_map)
 
 
 def _bytes_to_ten(raw: bytes) -> TensileTest:
@@ -1331,6 +1333,80 @@ def _deserialise_dimensional_records(
     return records, slice_cols
 
 
+def _tensile_slot_records(tensile: TensileTest) -> dict[int, list[int]]:
+    df = getattr(tensile, "df", None)
+    if df is None or df.empty:
+        return {}
+
+    slot_col = "Slot" if "Slot" in df.columns else "Record"
+    records_by_slot: dict[int, list[int]] = {}
+    for slot, grp in df.groupby(slot_col, sort=True):
+        try:
+            slot_int = int(slot)
+        except (TypeError, ValueError):
+            continue
+        rec_series = grp["Record"] if "Record" in grp.columns else pd.Series(dtype=int)
+        try:
+            records = (
+                rec_series.dropna()
+                .astype(int)
+                .unique()
+                .tolist()
+            )
+        except Exception:
+            records = []
+        records_by_slot[slot_int] = sorted(records)
+    return records_by_slot
+
+
+def _render_slot_alignment(dim_data: DimensionalData, tensile: TensileTest) -> html.Div:
+    dim_records = getattr(dim_data, "slot_records", {}) or {}
+    ten_records = _tensile_slot_records(tensile)
+    all_slots = sorted(set(dim_records) | set(ten_records))
+
+    if not all_slots:
+        return dbc.Alert(
+            "No slots detected in dimensional or tensile data.",
+            color="warning",
+            className="mb-0",
+        )
+
+    header = html.Thead(
+        html.Tr(
+            [
+                html.Th("Slot"),
+                html.Th("Dimensional Record(s)"),
+                html.Th("Tensile Record(s)"),
+            ]
+        )
+    )
+    rows = []
+    for slot in all_slots:
+        dim_vals = dim_records.get(slot, [])
+        ten_vals = ten_records.get(slot, [])
+        rows.append(
+            html.Tr(
+                [
+                    html.Td(slot),
+                    html.Td(", ".join(str(r) for r in dim_vals) or "—"),
+                    html.Td(", ".join(str(r) for r in ten_vals) or "—"),
+                ]
+            )
+        )
+    body = html.Tbody(rows)
+    table = dbc.Table([header, body], bordered=True, hover=True, size="sm", className="mb-0")
+
+    return dbc.Card(
+        dbc.CardBody(
+            [
+                html.H5("Slot / Record alignment", className="mb-3"),
+                table,
+            ]
+        ),
+        className="mb-4 shadow-sm",
+    )
+
+
 # ────────────── slot rebalance ──────────────
 def _rebalance_rows(rows: List[dict]):
     """
@@ -1353,7 +1429,7 @@ def _rebalance_rows(rows: List[dict]):
 # ───────────────────── Dash app ─────────────────────
 def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     root = Path(root_dir) if root_dir else _demo_exp_path()
-    default_areas, default_tensile, default_conds = _load_experiment(root)
+    default_dim, default_tensile, default_conds = _load_experiment(root)
 
     app = Dash(
         __name__,
@@ -2691,17 +2767,18 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _prime_table(dim_b64, ten_b64, gpdsr_b64):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
-        dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64))
-        areas = dim_data.map
-        tensile = _bytes_to_ten(_b64_to_bytes(ten_b64))
+        slot_map: dict[int, int] | None = None
         if gpdsr_b64:
             try:
                 mapping, _ = _build_gpdsr_mapping(gpdsr_b64)
                 slot_map = {int(r): int(s) for r, s in mapping}
-                tensile, _ = _remap_tensile_slots(tensile, slot_map)
             except Exception as exc:
                 raise ConfigError(str(exc)) from exc
-        total = _max_slot(areas, tensile)
+        dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64), slot_map=slot_map)
+        areas = dim_data.map
+        tensile_raw = _bytes_to_ten(_b64_to_bytes(ten_b64))
+        tensile, _ = _remap_tensile_slots(tensile_raw, None)
+        total = _max_slot(dim_data.map, tensile)
         return [{"name": "Condition 1", "slot_start": 1, "slot_end": total, "is_control": TICK}]
 
     # Add / delete rows with automatic rebalance
@@ -2785,11 +2862,13 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         removal_feedback: dict[str, object] | None = None
         gpdsr_payload: dict[str, object] | None = None
 
+        slot_map: dict[int, int] | None = None
         if gpdsr_b64:
             try:
                 mapping, deduped_slots = _build_gpdsr_mapping(gpdsr_b64)
             except Exception as exc:
                 raise ConfigError(str(exc)) from exc
+            slot_map = {int(r): int(s) for r, s in mapping}
             gpdsr_payload = {
                 "b64": gpdsr_b64,
                 "filename": gpdsr_name,
@@ -2805,7 +2884,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             removal_map = _entries_to_removal_map(removal_entries)
 
         dim_bytes = _b64_to_bytes(dim_b64)
-        dim_data = _bytes_to_dim(dim_bytes, removal_map if removal_map else None)
+        dim_data = _bytes_to_dim(dim_bytes, removal_map if removal_map else None, slot_map=slot_map)
         if removal_entries:
             removal_feedback = _build_removed_feedback_data(removal_entries, dim_data)
 
@@ -2833,20 +2912,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if not payload:
             mapped_tensile, _ = _remap_tensile_slots(default_tensile, None)
             gpdsr_feedback["warnings"].append(
-                "GPDSR mapping not supplied; using Record numbers as Slot IDs."
+                "No GPDSR mapping supplied; dimensional slots come from the file and tensile slots come from the tensile data."
             )
-            return default_areas, mapped_tensile, default_conds, None, gpdsr_feedback
+            return default_dim, mapped_tensile, default_conds, None, gpdsr_feedback
 
         data = json.loads(payload)
         removed_info = data.get("removed") or {}
         entries = removed_info.get("entries") or []
         removal_map = _entries_to_removal_map(entries)
-        dim_data = _bytes_to_dim(
-            _b64_to_bytes(data["dim_b64"]), removal_map if removal_map else None
-        )
-        feedback = removed_info.get("feedback")
-        if entries and not feedback:
-            feedback = _build_removed_feedback_data(entries, dim_data)
 
         gpdsr_info = data.get("gpdsr") or {}
         mapping_data = gpdsr_info.get("mapping")
@@ -2870,6 +2943,15 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             if not slot_map:
                 slot_map = None
 
+        dim_data = _bytes_to_dim(
+            _b64_to_bytes(data["dim_b64"]),
+            removal_map if removal_map else None,
+            slot_map=slot_map,
+        )
+        feedback = removed_info.get("feedback")
+        if entries and not feedback:
+            feedback = _build_removed_feedback_data(entries, dim_data)
+
         deduped_slots = gpdsr_info.get("deduped_slots") or []
         if deduped_slots:
             slot_list = ", ".join(str(s) for s in deduped_slots)
@@ -2879,15 +2961,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             )
 
         tensile_raw = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
-        tensile, unmapped_records = _remap_tensile_slots(tensile_raw, slot_map)
+        tensile, _ = _remap_tensile_slots(tensile_raw, None)
         if slot_map is None:
             gpdsr_feedback["warnings"].append(
-                "GPDSR mapping not supplied; using Record numbers as Slot IDs."
-            )
-        elif unmapped_records:
-            missing = ", ".join(str(r) for r in unmapped_records)
-            gpdsr_feedback["warnings"].append(
-                f"Records not found in GPDSR mapping; using Record numbers as slots for: {missing}."
+                "No GPDSR mapping supplied; dimensional slots come from the file and tensile slots come from the tensile data."
             )
 
         conds = [Condition(**c) for c in data["conds"]]
@@ -2895,7 +2972,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if not gpdsr_feedback["warnings"] and not gpdsr_feedback["infos"]:
             gpdsr_feedback = None
 
-        return dim_data.map, tensile, conds, feedback, gpdsr_feedback
+        return dim_data, tensile, conds, feedback, gpdsr_feedback
 
     # Plot
     @app.callback(
@@ -2904,11 +2981,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Input("exp-data", "data"),
     )
     def _draw(tab, payload):
-        areas, tensile, conds, feedback, gpdsr_feedback = _analysis_inputs(payload)
+        dim_data, tensile, conds, feedback, gpdsr_feedback = _analysis_inputs(payload)
         fig = (
-            _overlay_fig(areas, tensile, conds)
+            _overlay_fig(dim_data.map, tensile, conds)
             if tab == "overlay"
-            else _violin_fig(areas, tensile, conds)
+            else _violin_fig(dim_data.map, tensile, conds)
         )
         layout_height = getattr(fig.layout, "height", None)
         graph_height = 750
@@ -2930,6 +3007,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         gpdsr_alerts = _render_gpdsr_feedback(gpdsr_feedback)
         if gpdsr_alerts:
             children.extend(gpdsr_alerts)
+        children.append(_render_slot_alignment(dim_data, tensile))
         return html.Div(children)
 
     # Download metrics
@@ -2943,8 +3021,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _dl_metrics(_, fname, payload):
         if not payload:
             raise PreventUpdate
-        areas, tensile, conds, _, _ = _analysis_inputs(payload)
-        df = build_summary(areas, tensile, conds)
+        dim_data, tensile, conds, _, _ = _analysis_inputs(payload)
+        df = build_summary(dim_data.map, tensile, conds)
         return dcc.send_bytes(to_excel_bytes({"Metrics": df}), fname or "metrics.xlsx")
 
     # Download stats
@@ -2958,9 +3036,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _dl_stats(_, fname, payload):
         if not payload:
             raise PreventUpdate
-        areas, tensile, conds, _, _ = _analysis_inputs(payload)
+        dim_data, tensile, conds, _, _ = _analysis_inputs(payload)
 
-        summary = build_summary(areas, tensile, conds)
+        summary = build_summary(dim_data.map, tensile, conds)
         metrics_od = OrderedDict(
             (c, c.replace("_", " "))
             for c in summary.columns
