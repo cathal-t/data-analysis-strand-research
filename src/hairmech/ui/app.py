@@ -1480,48 +1480,20 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         width="auto",
                     ),
                     dbc.Col(
-                        [
-                            dcc.Upload(
-                                id="upload-ten",
-                                children=dbc.Button("Upload Tensile Data",
-                                                    color="primary", id="btn-ten"),
-                                multiple=False,
-                            ),
-                            html.Small(id="ten-msg", className="text-muted"),
-                        ],
-                        width="auto",
+                [
+                    dcc.Upload(
+                        id="upload-ten",
+                        children=dbc.Button("Upload Tensile Data",
+                                            color="primary", id="btn-ten"),
+                        multiple=False,
                     ),
-                    dbc.Col(
-                        [
-                            dcc.Upload(
-                                id="upload-removed",
-                                accept=".csv",
-                                children=dbc.Button(
-                                    "Upload Removed Slices", color="primary", id="btn-removed"
-                                ),
-                                multiple=False,
-                            ),
-                            html.Small(id="removed-msg", className="text-muted"),
-                        ],
-                        width="auto",
-                    ),
-                    dbc.Col(
-                        [
-                            dcc.Upload(
-                                id="upload-gpdsr",
-                                accept=".txt",
-                                children=dbc.Button(
-                                    "Upload GPDSR", color="primary", id="btn-gpdsr"
-                                ),
-                                multiple=False,
-                            ),
-                            html.Small(id="gpdsr-msg", className="text-muted"),
-                        ],
-                        width="auto",
-                    ),
+                    html.Small(id="ten-msg", className="text-muted"),
                 ],
-                className="g-3 flex-wrap",
-            )
+                width="auto",
+            ),
+        ],
+        className="g-3 flex-wrap",
+    )
         ),
         className="mb-3 shadow-sm",
     )
@@ -2750,45 +2722,17 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     def _ten_status(contents, filename):
         return ("success", f"Loaded: {filename}") if contents else ("primary", "")
 
-    @app.callback(
-        Output("btn-removed", "color"),
-        Output("removed-msg", "children"),
-        Input("upload-removed", "contents"),
-        State("upload-removed", "filename"),
-        prevent_initial_call=True,
-    )
-    def _removed_status(contents, filename):
-        return ("success", f"Loaded: {filename}") if contents else ("primary", "")
-
-    @app.callback(
-        Output("btn-gpdsr", "color"),
-        Output("gpdsr-msg", "children"),
-        Input("upload-gpdsr", "contents"),
-        State("upload-gpdsr", "filename"),
-        prevent_initial_call=True,
-    )
-    def _gpdsr_status(contents, filename):
-        return ("success", f"Loaded: {filename}") if contents else ("primary", "")
-
     # Prime table once both files uploaded
     @app.callback(
         Output("cond-table", "data", allow_duplicate=True),
         Input("upload-dim", "contents"),
         Input("upload-ten", "contents"),
-        Input("upload-gpdsr", "contents"),
         prevent_initial_call=True,
     )
-    def _prime_table(dim_b64, ten_b64, gpdsr_b64):
+    def _prime_table(dim_b64, ten_b64):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
-        slot_map: dict[int, int] | None = None
-        if gpdsr_b64:
-            try:
-                mapping, _ = _build_gpdsr_mapping(gpdsr_b64)
-                slot_map = {int(r): int(s) for r, s in mapping}
-            except Exception as exc:
-                raise ConfigError(str(exc)) from exc
-        dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64), slot_map=slot_map)
+        dim_data = _bytes_to_dim(_b64_to_bytes(dim_b64))
         areas = dim_data.map
         tensile_raw = _bytes_to_ten(_b64_to_bytes(ten_b64))
         tensile, _ = _remap_tensile_slots(tensile_raw, None)
@@ -2843,13 +2787,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         State("cond-table", "data"),
         State("upload-dim", "contents"),
         State("upload-ten", "contents"),
-        State("upload-removed", "contents"),
-        State("upload-removed", "filename"),
-        State("upload-gpdsr", "contents"),
-        State("upload-gpdsr", "filename"),
         prevent_initial_call=True,
     )
-    def _cache(_, rows, dim_b64, ten_b64, removed_b64, removed_name, gpdsr_b64, gpdsr_name):
+    def _cache(_, rows, dim_b64, ten_b64):
         if not dim_b64 or not ten_b64:
             raise PreventUpdate
 
@@ -2871,52 +2811,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         if sum(c.is_control for c in conds) != 1:
             raise ConfigError("Mark exactly one ✓ row as control")
 
-        removal_entries: list[dict[str, object]] = []
-        removal_map: dict[int, set[int]] | None = None
-        removal_feedback: dict[str, object] | None = None
-        gpdsr_payload: dict[str, object] | None = None
-
-        slot_map: dict[int, int] | None = None
-        if gpdsr_b64:
-            try:
-                mapping, deduped_slots = _build_gpdsr_mapping(gpdsr_b64)
-            except Exception as exc:
-                raise ConfigError(str(exc)) from exc
-            slot_map = {int(r): int(s) for r, s in mapping}
-            gpdsr_payload = {
-                "b64": gpdsr_b64,
-                "filename": gpdsr_name,
-                "mapping": mapping,
-                "deduped_slots": deduped_slots,
-            }
-
-        if removed_b64:
-            try:
-                removal_entries = _parse_removed_slices_csv(_b64_to_bytes(removed_b64))
-            except ValueError as exc:
-                raise ConfigError(str(exc)) from exc
-            removal_map = _entries_to_removal_map(removal_entries)
-
         dim_bytes = _b64_to_bytes(dim_b64)
-        dim_data = _bytes_to_dim(dim_bytes, removal_map if removal_map else None, slot_map=slot_map)
-        if removal_entries:
-            removal_feedback = _build_removed_feedback_data(removal_entries, dim_data)
+        dim_data = _bytes_to_dim(dim_bytes)
 
         payload: dict[str, object] = {
             "dim_b64": dim_b64,
             "ten_b64": ten_b64,
             "conds": [asdict(c) for c in conds],
         }
-
-        if removed_b64:
-            payload["removed"] = {
-                "entries": removal_entries,
-                "feedback": removal_feedback,
-                "filename": removed_name,
-            }
-
-        if gpdsr_payload:
-            payload["gpdsr"] = gpdsr_payload
 
         return json.dumps(payload)
 
@@ -2925,10 +2827,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         if not payload:
             mapped_tensile, _ = _remap_tensile_slots(default_tensile, None)
-            gpdsr_feedback["warnings"].append(
-                "No GPDSR mapping supplied; dimensional slots come from the file and tensile slots come from the tensile data."
-            )
-            return default_dim, mapped_tensile, default_conds, None, gpdsr_feedback
+            return default_dim, mapped_tensile, default_conds, None, None
 
         data = json.loads(payload)
         removed_info = data.get("removed") or {}
@@ -2976,10 +2875,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         tensile_raw = _bytes_to_ten(_b64_to_bytes(data["ten_b64"]))
         tensile, _ = _remap_tensile_slots(tensile_raw, None)
-        if slot_map is None:
-            gpdsr_feedback["warnings"].append(
-                "No GPDSR mapping supplied; dimensional slots come from the file and tensile slots come from the tensile data."
-            )
 
         conds = [Condition(**c) for c in data["conds"]]
 
