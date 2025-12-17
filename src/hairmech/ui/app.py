@@ -34,6 +34,7 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 from dash import Dash, dcc, html, dash_table
+from dash.development.base_component import Component
 from dash.dependencies import ALL, MATCH, Input, Output, State
 from dash.exceptions import PreventUpdate
 import plotly.graph_objects as go
@@ -1333,19 +1334,28 @@ def _deserialise_dimensional_records(
     return records, slice_cols
 
 
-def _tensile_slot_records(tensile: TensileTest) -> dict[int, list[int]]:
+def _tensile_slot_records(tensile: TensileTest) -> tuple[dict[int, list[int]], str]:
     df = getattr(tensile, "df", None)
     if df is None or df.empty:
-        return {}
+        return {}, ""
 
     slot_col = "Slot" if "Slot" in df.columns else "Record"
+    slot_note = (
+        "Tensile slots parsed from ASCII export; mappings show Slot → Record values from the file."
+        if slot_col == "Slot"
+        else (
+            "Legacy tensile export lacks slot numbers; assuming tensile slots align with the Record column (mapping cannot be guaranteed)."
+        )
+    )
+    record_col = "Record" if "Record" in df.columns else slot_col
+
     records_by_slot: dict[int, list[int]] = {}
     for slot, grp in df.groupby(slot_col, sort=True):
         try:
             slot_int = int(slot)
         except (TypeError, ValueError):
             continue
-        rec_series = grp["Record"] if "Record" in grp.columns else pd.Series(dtype=int)
+        rec_series = grp[record_col] if record_col in grp else pd.Series(dtype=int)
         try:
             records = (
                 rec_series.dropna()
@@ -1356,12 +1366,12 @@ def _tensile_slot_records(tensile: TensileTest) -> dict[int, list[int]]:
         except Exception:
             records = []
         records_by_slot[slot_int] = sorted(records)
-    return records_by_slot
+    return records_by_slot, slot_note
 
 
 def _render_slot_alignment(dim_data: DimensionalData, tensile: TensileTest) -> html.Div:
     dim_records = getattr(dim_data, "slot_records", {}) or {}
-    ten_records = _tensile_slot_records(tensile)
+    ten_records, ten_slot_note = _tensile_slot_records(tensile)
     all_slots = sorted(set(dim_records) | set(ten_records))
 
     if not all_slots:
@@ -1376,7 +1386,7 @@ def _render_slot_alignment(dim_data: DimensionalData, tensile: TensileTest) -> h
             [
                 html.Th("Slot"),
                 html.Th("Dimensional Record(s)"),
-                html.Th("Tensile Record(s)"),
+                html.Th("Tensile Slot → Record(s)"),
             ]
         )
     )
@@ -1389,20 +1399,24 @@ def _render_slot_alignment(dim_data: DimensionalData, tensile: TensileTest) -> h
                 [
                     html.Td(slot),
                     html.Td(", ".join(str(r) for r in dim_vals) or "—"),
-                    html.Td(", ".join(str(r) for r in ten_vals) or "—"),
+                    html.Td(
+                        ", ".join(f"{slot} → {rec}" for rec in ten_vals) if ten_vals else "—"
+                    ),
                 ]
             )
         )
     body = html.Tbody(rows)
     table = dbc.Table([header, body], bordered=True, hover=True, size="sm", className="mb-0")
 
+    card_children: list[Component] = [
+        html.H5("Slot / Record alignment", className="mb-3"),
+    ]
+    if ten_slot_note:
+        card_children.append(html.Small(ten_slot_note, className="text-muted d-block mb-2"))
+    card_children.append(table)
+
     return dbc.Card(
-        dbc.CardBody(
-            [
-                html.H5("Slot / Record alignment", className="mb-3"),
-                table,
-            ]
-        ),
+        dbc.CardBody(card_children),
         className="mb-4 shadow-sm",
     )
 
