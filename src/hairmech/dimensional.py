@@ -32,12 +32,14 @@ class DimensionalData:
         self,
         path: Path,
         removed_slices: Mapping[int, Sequence[int]] | None = None,
+        slot_map: Mapping[int, int] | None = None,
     ):
         lines = path.read_text().splitlines()
 
         # 1 ── locate the first header line
         hdr_idx = next(i for i, l in enumerate(lines) if l.startswith("Record"))
         header  = [c.strip() for c in lines[hdr_idx].split("\t")]
+        rec_idx = header.index("Record")
 
         # 2 ── index of area & description columns
         try:
@@ -58,6 +60,7 @@ class DimensionalData:
         # 3 ── parse every data row
         slot_vals: Dict[int, List[float]] = {}
         all_slices: Dict[int, Set[int]] = {}
+        slot_records: Dict[int, Set[int]] = {}
         removed_lookup: Dict[int, Set[int]] = {
             int(slot): {int(s) for s in slices}
             for slot, slices in (removed_slices or {}).items()
@@ -81,11 +84,24 @@ class DimensionalData:
             if len(parts) <= max(area_idx, desc_idx):
                 continue
 
+            record_val: int | None = None
+            if rec_idx < len(parts):
+                try:
+                    record_val = int(float(parts[rec_idx].strip()))
+                except ValueError:
+                    record_val = None
+
             desc = parts[desc_idx].strip()
             m = self._DESC_RE.match(desc)
-            if not m:
-                continue                                  # no “Slot N : ...”
-            slot = int(m.group(1))
+            slot_from_desc = int(m.group(1)) if m else None
+
+            slot: int | None = None
+            if slot_map is not None and record_val is not None:
+                slot = slot_map.get(record_val)
+            if slot is None:
+                slot = slot_from_desc
+            if slot is None:
+                continue
 
             area_str = parts[area_idx].strip()
             if not self._NUM_RE.match(area_str):
@@ -111,6 +127,8 @@ class DimensionalData:
                 removed_applied.setdefault(slot, set()).add(slice_number)
                 continue
 
+            if record_val is not None:
+                slot_records.setdefault(slot, set()).add(record_val)
             slot_vals[slot].append(area_val)
 
         if not slot_vals:
@@ -158,3 +176,7 @@ class DimensionalData:
                 "First 10 rows:\n%s",
                 df_debug.head(100).to_string(index=False),
             )
+
+        self.slot_records: Dict[int, List[int]] = {
+            slot: sorted(records) for slot, records in slot_records.items()
+        }
