@@ -1632,14 +1632,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             id="dim-cleaning-loading",
                             type="default",
                             custom_spinner=html.Div(
-                                [
-                                    dbc.Spinner(color="primary", size="md"),
-                                    html.Div(
-                                        "Loading...",
-                                        className="fw-semibold text-primary mt-2",
-                                    ),
-                                ],
-                                className="d-flex flex-column align-items-center py-3",
+                                "Loading...",
+                                className="text-center fw-semibold py-2",
                             ),
                             children=[
                                 dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
@@ -1726,14 +1720,8 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                             id="ten-cleaning-loading",
                             type="default",
                             custom_spinner=html.Div(
-                                [
-                                    dbc.Spinner(color="primary", size="md"),
-                                    html.Div(
-                                        "Loading...",
-                                        className="fw-semibold text-primary mt-2",
-                                    ),
-                                ],
-                                className="d-flex flex-column align-items-center py-3",
+                                "Loading...",
+                                className="text-center fw-semibold py-2",
                             ),
                             children=[
                                 dbc.Alert(id="ten-cleaning-alert", is_open=False, className="mt-3"),
