@@ -1628,34 +1628,35 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         ),
                         dcc.Store(id="dim-cleaning-data"),
                         dcc.Store(id="dim-export-directory"),
-                        dcc.Loading(
-                            id="dim-cleaning-loading",
-                            type="default",
-                            custom_spinner=html.Div(
-                                "Loading...",
-                                className="text-center fw-semibold py-2",
-                            ),
-                            children=[
-                                dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
-                                html.Div(id="dim-cleaning-plots", className="mt-4"),
-                                html.Div(
-                                    [
-                                        dbc.Button(
-                                            "Generate List of Remove Slices",
-                                            id="dim-generate-remove-list",
-                                            color="primary",
-                                            size="lg",
-                                            className="w-100",
-                                        ),
-                                        html.Div(id="dim-removed-summary-message", className="mt-3"),
-                                        html.Div(id="dim-removed-summary-table", className="mt-3"),
-                                    ],
-                                    id="dim-removed-summary-container",
-                                    className="mt-4",
-                                    style={"display": "none"},
-                                ),
-                            ],
+        dcc.Loading(
+            id="dim-cleaning-loading",
+            type="default",
+            custom_spinner=html.Div(
+                "Loading...",
+                className="text-center fw-semibold py-2",
+            ),
+            delay_show=400,
+            children=[
+                dbc.Alert(id="dim-cleaning-alert", is_open=False, className="mt-3"),
+                html.Div(id="dim-cleaning-plots", className="mt-4"),
+                html.Div(
+                    [
+                        dbc.Button(
+                            "Generate List of Remove Slices",
+                            id="dim-generate-remove-list",
+                            color="primary",
+                            size="lg",
+                            className="w-100",
                         ),
+                        html.Div(id="dim-removed-summary-message", className="mt-3"),
+                        html.Div(id="dim-removed-summary-table", className="mt-3"),
+                    ],
+                    id="dim-removed-summary-container",
+                    className="mt-4",
+                    style={"display": "none"},
+                ),
+            ],
+        ),
                     ]
                 ),
                 className="shadow-sm",
