@@ -1737,74 +1737,204 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         style={"maxWidth": "1100px"},
     )
 
-    landing_intro = dbc.Card(
-        dbc.CardBody(
-            [
-                dbc.Stack(
-                    [
-                        dbc.Button(
-                            "Data Cleaning",
-                            id="btn-landing-cleaning",
-                            color="primary",
-                            className="mx-auto",
-                            style={"width": "70%"},
-                        ),
-                        html.Div(
-                            dbc.Stack(
-                                [
-                                    dbc.Button(
-                                        "Dimensional Cleaning",
-                                        id="btn-landing-dim-cleaning",
-                                        color="primary",
-                                        className="mx-auto",
-                                        style={"width": "100%"},
-                                    ),
-                                    dbc.Button(
-                                        "Tensile Cleaning",
-                                        id="btn-landing-ten-cleaning",
-                                        color="primary",
-                                        className="mx-auto",
-                                        style={"width": "100%"},
-                                    ),
-                                ],
-                                gap=2,
-                                className="mx-auto",
-                                style={"width": "70%"},
-                            ),
-                            id="cleaning-subbuttons",
-                            style={"display": "none"},
-                        ),
-                        dbc.Button(
-                            "Dimensional & Tensile Analysis",
-                            id="btn-landing-analysis",
-                            color="primary",
-                            href="/analysis",
-                            className="mx-auto",
-                            style={"width": "70%"},
-                        ),
-                        dbc.Button(
-                            "Multiple Cassette Analysis",
-                            id="btn-landing-cross",
-                            color="primary",
-                            href="/multiple-cassette",
-                            className="mx-auto",
-                            style={"width": "70%"},
-                        ),
-                    ],
-                    gap=3,
-                ),
-            ]
+    logo_svg = (
+        "data:image/svg+xml;utf8,"
+        "<svg xmlns='http://www.w3.org/2000/svg' width='210' height='40' viewBox='0 0 210 40'>"
+        "<circle cx='18' cy='20' r='16' fill='none' stroke='%23c4181b' stroke-width='4'/>"
+        "<text x='46' y='20' font-family='Arial, sans-serif' font-size='24' "
+        "fill='%23c4181b' font-weight='700'>Strand</text>"
+        "<text x='46' y='38' font-family='Arial, sans-serif' font-size='24' "
+        "fill='%23666'>Research</text>"
+        "</svg>"
+    )
+    card_icons = {
+        "cleaning": (
+            "data:image/svg+xml;utf8,"
+            "<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'>"
+            "<rect x='16' y='18' width='28' height='34' rx='6' fill='%23e8f1ff' stroke='%2373a7f5' stroke-width='2'/>"
+            "<path d='M44 22c6 2 10 8 10 15 0 8-5 15-12 17' fill='none' stroke='%2373a7f5' stroke-width='2'/>"
+            "<path d='M20 54l7-10 7 8 8-14' fill='none' stroke='%233f7fe0' stroke-width='2'/>"
+            "<circle cx='50' cy='16' r='3' fill='%2389b6ff'/>"
+            "</svg>"
         ),
-        className="shadow-sm",
+        "analysis": (
+            "data:image/svg+xml;utf8,"
+            "<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'>"
+            "<circle cx='36' cy='36' r='24' fill='%23eef4ff'/>"
+            "<path d='M22 44l10-12 8 6 12-16' fill='none' stroke='%233f7fe0' stroke-width='3' stroke-linecap='round'/>"
+            "<path d='M20 50h32' stroke='%2373a7f5' stroke-width='2' stroke-linecap='round'/>"
+            "<path d='M20 22v28' stroke='%2373a7f5' stroke-width='2' stroke-linecap='round'/>"
+            "</svg>"
+        ),
+        "cassette": (
+            "data:image/svg+xml;utf8,"
+            "<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'>"
+            "<rect x='16' y='18' width='40' height='14' rx='4' fill='%23eef4ff' stroke='%2373a7f5' stroke-width='2'/>"
+            "<rect x='12' y='32' width='40' height='14' rx='4' fill='%23eef4ff' stroke='%2373a7f5' stroke-width='2'/>"
+            "<rect x='18' y='46' width='38' height='14' rx='4' fill='%23eef4ff' stroke='%2373a7f5' stroke-width='2'/>"
+            "<circle cx='26' cy='25' r='2' fill='%2373a7f5'/>"
+            "<circle cx='24' cy='39' r='2' fill='%2373a7f5'/>"
+            "<circle cx='30' cy='53' r='2' fill='%2373a7f5'/>"
+            "</svg>"
+        ),
+    }
+
+    def _landing_card(
+        *,
+        icon: str,
+        title: str,
+        description: str,
+        button_text: str,
+        button_id: str,
+        href: str | None = None,
+        extra: Component | None = None,
+    ) -> dbc.Card:
+        return dbc.Card(
+            dbc.CardBody(
+                [
+                    html.Img(src=icon, style={"width": "60px", "height": "60px"}),
+                    html.H4(title, className="fw-semibold mt-3"),
+                    html.P(description, className="text-muted"),
+                    html.Div(
+                        [
+                            dbc.Button(
+                                button_text,
+                                id=button_id,
+                                href=href,
+                                color="primary",
+                                className="w-100 fw-semibold",
+                                style={"borderRadius": "10px"},
+                            ),
+                            extra or html.Div(),
+                        ],
+                        className="mt-auto",
+                    ),
+                ],
+                className="d-flex flex-column gap-2 h-100",
+            ),
+            style={
+                "borderRadius": "16px",
+                "boxShadow": "0 12px 30px rgba(31, 54, 93, 0.12)",
+                "border": "1px solid rgba(0, 0, 0, 0.05)",
+            },
+            className="h-100",
+        )
+
+    landing_hero = html.Div(
+        [
+            html.Div(
+                [
+                    html.Img(src=logo_svg, style={"height": "32px"}),
+                ],
+                className="d-flex align-items-center gap-2",
+            ),
+        ],
+        style={
+            "padding": "18px 0",
+            "borderBottom": "1px solid rgba(0, 0, 0, 0.08)",
+        },
+    )
+
+    landing_intro = html.Div(
+        [
+            html.H1("Data Analysis", className="fw-semibold mb-3"),
+            html.P(
+                "Clean and analyze Dia-Stron exports with consistent metrics and reports.",
+                className="text-muted fs-5",
+            ),
+        ],
+        className="text-center",
+        style={"padding": "40px 0 10px"},
+    )
+
+    landing_cards = dbc.Row(
+        [
+            dbc.Col(
+                _landing_card(
+                    icon=card_icons["cleaning"],
+                    title="Data Cleaning",
+                    description=(
+                        "Remove slice outliers and generate cleaned dimensional summaries."
+                    ),
+                    button_text="Start Cleaning",
+                    button_id="btn-landing-cleaning",
+                    extra=html.Div(
+                        dbc.Stack(
+                            [
+                                dbc.Button(
+                                    "Dimensional Cleaning",
+                                    id="btn-landing-dim-cleaning",
+                                    color="primary",
+                                    className="w-100 fw-semibold",
+                                    style={"borderRadius": "10px"},
+                                ),
+                                dbc.Button(
+                                    "Tensile Cleaning",
+                                    id="btn-landing-ten-cleaning",
+                                    color="primary",
+                                    className="w-100 fw-semibold",
+                                    style={"borderRadius": "10px"},
+                                ),
+                            ],
+                            gap=2,
+                            className="pt-2",
+                        ),
+                        id="cleaning-subbuttons",
+                        style={"display": "none"},
+                    ),
+                ),
+                md=4,
+                className="mb-4",
+            ),
+            dbc.Col(
+                _landing_card(
+                    icon=card_icons["analysis"],
+                    title="Dimensional & Tensile Analysis",
+                    description=(
+                        "Compute area, stress-strain metrics, plots and exports."
+                    ),
+                    button_text="Run Analysis",
+                    button_id="btn-landing-analysis",
+                    href="/analysis",
+                ),
+                md=4,
+                className="mb-4",
+            ),
+            dbc.Col(
+                _landing_card(
+                    icon=card_icons["cassette"],
+                    title="Multiple Cassette Analysis",
+                    description=(
+                        "Batch process multiple cassettes and aggregate stats."
+                    ),
+                    button_text="Batch Analyze",
+                    button_id="btn-landing-cross",
+                    href="/multiple-cassette",
+                ),
+                md=4,
+                className="mb-4",
+            ),
+        ],
+        className="g-4",
     )
 
     landing_layout = dbc.Container(
         [
-            _header(),
+            landing_hero,
             landing_intro,
+            landing_cards,
         ],
         fluid=True,
-        style={"maxWidth": "900px"},
+        style={"maxWidth": "1100px"},
+    )
+
+    landing_page = html.Div(
+        landing_layout,
+        style={
+            "backgroundColor": "#f5f6fb",
+            "minHeight": "100vh",
+            "paddingBottom": "80px",
+        },
     )
 
     app.layout = html.Div(
@@ -1824,7 +1954,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             return dim_clean_layout
         if pathname == "/tensile-cleaning":
             return ten_clean_layout
-        return landing_layout
+        return landing_page
 
     @app.callback(
         Output("url", "pathname", allow_duplicate=True),
