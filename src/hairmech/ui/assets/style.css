@@ -1,0 +1,45 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+html,
+body,
+#react-entry-point,
+.dash-application {
+  font-family: "Inter", sans-serif;
+  background-color: #ffffff;
+}
+
+.dash-table-container .dash-spreadsheet-container,
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+  font-family: "Inter", sans-serif;
+}
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-success,
+.btn-info,
+.btn-warning,
+.btn-danger {
+  background-color: #1a1a1a !important;
+  border-color: #1a1a1a !important;
+  color: #ffffff !important;
+}
+
+.btn:hover,
+.btn:focus,
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-secondary:hover,
+.btn-secondary:focus,
+.btn-success:hover,
+.btn-success:focus,
+.btn-info:hover,
+.btn-info:focus,
+.btn-warning:hover,
+.btn-warning:focus,
+.btn-danger:hover,
+.btn-danger:focus {
+  background-color: #2a2a2a !important;
+  border-color: #2a2a2a !important;
+  color: #ffffff !important;
+}
