@@ -1447,7 +1447,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
     app = Dash(
         __name__,
-        assets_folder=str(Path(__file__).resolve().parent / "assets"),
         external_stylesheets=[dbc.themes.BOOTSTRAP],
         title="Hair-mech",
         suppress_callback_exceptions=True,
@@ -1522,7 +1521,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         row_selectable="multi",
         row_deletable=True,
         style_table={"overflowX": "auto", "minWidth": "100%"},
-        style_header={"backgroundColor": "#ffffff"},
+        style_header={"backgroundColor": "#f7f7f9"},
         style_data_conditional=[{"if": {"column_id": "is_control"}, "textAlign": "center"}],
     )
 
@@ -1623,7 +1622,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 "borderStyle": "dashed",
                                 "borderRadius": "10px",
                                 "textAlign": "center",
-                                "backgroundColor": "#ffffff",
+                                "backgroundColor": "#fafafa",
                             },
                             className="mb-3",
                         ),
@@ -1713,7 +1712,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 "borderStyle": "dashed",
                                 "borderRadius": "10px",
                                 "textAlign": "center",
-                                "backgroundColor": "#ffffff",
+                                "backgroundColor": "#fafafa",
                             },
                             className="mb-3",
                         ),
@@ -1932,7 +1931,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     landing_page = html.Div(
         landing_layout,
         style={
-            "backgroundColor": "#ffffff",
+            "backgroundColor": "#f5f6fb",
             "minHeight": "100vh",
             "paddingBottom": "80px",
         },
