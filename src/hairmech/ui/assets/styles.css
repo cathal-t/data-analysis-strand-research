@@ -7,21 +7,17 @@ body,
 }
 
 .btn-primary,
-.btn-secondary,
-.btn-info {
+.btn-secondary {
   background-color: #1a1a1a;
   border-color: #1a1a1a;
 }
 
 .btn-primary:hover,
 .btn-secondary:hover,
-.btn-info:hover,
 .btn-primary:focus,
 .btn-secondary:focus,
-.btn-info:focus,
 .btn-primary:active,
-.btn-secondary:active,
-.btn-info:active {
+.btn-secondary:active {
   background-color: #111111;
   border-color: #111111;
 }
