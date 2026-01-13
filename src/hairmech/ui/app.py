@@ -1447,7 +1447,10 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
     app = Dash(
         __name__,
-        external_stylesheets=[dbc.themes.BOOTSTRAP],
+        external_stylesheets=[
+            dbc.themes.BOOTSTRAP,
+            "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
+        ],
         title="Hair-mech",
         suppress_callback_exceptions=True,
     )
@@ -1801,9 +1804,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 button_text,
                                 id=button_id,
                                 href=href,
-                                color="primary",
+                                color="dark",
                                 className="w-100 fw-semibold",
-                                style={"borderRadius": "10px"},
+                                style={
+                                    "borderRadius": "999px",
+                                    "padding": "12px 18px",
+                                },
                             ),
                             extra or html.Div(),
                         ],
@@ -1813,38 +1819,98 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 className="d-flex flex-column gap-2 h-100",
             ),
             style={
-                "borderRadius": "16px",
-                "boxShadow": "0 12px 30px rgba(31, 54, 93, 0.12)",
-                "border": "1px solid rgba(0, 0, 0, 0.05)",
+                "borderRadius": "20px",
+                "boxShadow": "0 10px 24px rgba(16, 15, 10, 0.06)",
+                "border": "1px solid #e8e2d6",
+                "backgroundColor": "#ffffff",
             },
             className="h-100",
         )
 
-    landing_hero = html.Div(
+    nav_links = html.Div(
         [
-            html.Div(
-                [
-                    html.Img(src=logo_svg, style={"height": "32px"}),
-                ],
-                className="d-flex align-items-center gap-2",
+            html.A(
+                "Features",
+                href="#",
+                className="text-decoration-none",
+                style={"color": "#1f1f1a", "fontWeight": 500},
+            ),
+            html.A(
+                "Enterprise",
+                href="#",
+                className="text-decoration-none",
+                style={"color": "#1f1f1a", "fontWeight": 500},
+            ),
+            html.A(
+                "Pricing",
+                href="#",
+                className="text-decoration-none",
+                style={"color": "#1f1f1a", "fontWeight": 500},
+            ),
+            html.A(
+                "Resources",
+                href="#",
+                className="text-decoration-none",
+                style={"color": "#1f1f1a", "fontWeight": 500},
             ),
         ],
+        className="d-flex gap-4",
+    )
+
+    landing_hero = html.Div(
+        dbc.Container(
+            [
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Img(src=logo_svg, style={"height": "32px"}),
+                                html.Span(
+                                    "CURSOR",
+                                    className="fw-semibold",
+                                    style={"letterSpacing": "0.08em"},
+                                ),
+                            ],
+                            className="d-flex align-items-center gap-2",
+                        ),
+                        nav_links,
+                    ],
+                    className="d-flex align-items-center justify-content-between",
+                ),
+            ],
+            fluid=True,
+            style={"maxWidth": "1100px"},
+        ),
         style={
-            "padding": "18px 0",
-            "borderBottom": "1px solid rgba(0, 0, 0, 0.08)",
+            "padding": "24px 0",
+            "borderBottom": "1px solid #e6e1d7",
         },
     )
 
     landing_intro = html.Div(
         [
-            html.H1("Data Analysis", className="fw-semibold mb-3"),
+            html.Div(
+                "Enterprise",
+                className="text-uppercase",
+                style={
+                    "letterSpacing": "0.08em",
+                    "fontSize": "0.85rem",
+                    "color": "#7b7568",
+                },
+            ),
+            html.H1(
+                "Develop enduring software at scale.",
+                className="fw-semibold mb-3",
+                style={"fontSize": "3.25rem", "lineHeight": "1.1"},
+            ),
             html.P(
                 "Clean and analyze Dia-Stron exports with consistent metrics and reports.",
-                className="text-muted fs-5",
+                className="fs-5",
+                style={"color": "#5e594f", "maxWidth": "520px"},
             ),
         ],
-        className="text-center",
-        style={"padding": "40px 0 10px"},
+        className="text-start",
+        style={"padding": "80px 0 30px"},
     )
 
     landing_cards = dbc.Row(
@@ -1864,16 +1930,16 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                 dbc.Button(
                                     "Dimensional Cleaning",
                                     id="btn-landing-dim-cleaning",
-                                    color="primary",
+                                    color="dark",
                                     className="w-100 fw-semibold",
-                                    style={"borderRadius": "10px"},
+                                    style={"borderRadius": "999px"},
                                 ),
                                 dbc.Button(
                                     "Tensile Cleaning",
                                     id="btn-landing-ten-cleaning",
-                                    color="primary",
+                                    color="dark",
                                     className="w-100 fw-semibold",
-                                    style={"borderRadius": "10px"},
+                                    style={"borderRadius": "999px"},
                                 ),
                             ],
                             gap=2,
@@ -1931,7 +1997,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     landing_page = html.Div(
         landing_layout,
         style={
-            "backgroundColor": "#f5f6fb",
+            "backgroundColor": "#f8f6f1",
+            "color": "#1f1f1a",
+            "fontFamily": "Inter, 'Helvetica Neue', Arial, sans-serif",
             "minHeight": "100vh",
             "paddingBottom": "80px",
         },
