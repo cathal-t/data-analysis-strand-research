@@ -1,0 +1,27 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+body,
+#page-content {
+  font-family: "Inter", "Segoe UI", sans-serif;
+  background-color: #ffffff;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-info {
+  background-color: #1a1a1a;
+  border-color: #1a1a1a;
+}
+
+.btn-primary:hover,
+.btn-secondary:hover,
+.btn-info:hover,
+.btn-primary:focus,
+.btn-secondary:focus,
+.btn-info:focus,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-info:active {
+  background-color: #111111;
+  border-color: #111111;
+}

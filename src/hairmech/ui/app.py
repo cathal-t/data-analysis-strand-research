@@ -1931,7 +1931,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     landing_page = html.Div(
         landing_layout,
         style={
-            "backgroundColor": "#f5f6fb",
+            "backgroundColor": "#ffffff",
             "minHeight": "100vh",
             "paddingBottom": "80px",
         },
