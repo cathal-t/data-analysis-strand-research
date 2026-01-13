@@ -1754,39 +1754,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     landing_intro = dbc.Card(
         dbc.CardBody(
             [
-                html.H4("Welcome to Strand Research Analytics", className="card-title"),
-                html.P(
-                    "Select a workflow to get started. Additional modules will be available soon.",
-                    className="text-muted",
-                ),
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            dbc.Checklist(
-                                id="debug-toggle",
-                                options=[{"label": " Enable debug logging", "value": "debug"}],
-                                value=[],
-                                switch=True,
-                                className="mb-0",
-                            ),
-                            width="auto",
-                        ),
-                        dbc.Col(
-                            html.Span(
-                                "Debug logging is off. Enable to print debug statements to the server console.",
-                                id="debug-toggle-status",
-                                className="text-muted",
-                            )
-                        ),
-                    ],
-                    className="align-items-center g-2",
-                ),
                 dbc.Stack(
                     [
                         dbc.Button(
                             "Data Cleaning",
                             id="btn-landing-cleaning",
-                            color="secondary",
+                            color="primary",
                             className="mx-auto",
                             style={"width": "70%"},
                         ),
@@ -1796,14 +1769,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                     dbc.Button(
                                         "Dimensional Cleaning",
                                         id="btn-landing-dim-cleaning",
-                                        color="light",
+                                        color="primary",
                                         className="mx-auto",
                                         style={"width": "100%"},
                                     ),
                                     dbc.Button(
                                         "Tensile Cleaning",
                                         id="btn-landing-ten-cleaning",
-                                        color="light",
+                                        color="primary",
                                         className="mx-auto",
                                         style={"width": "100%"},
                                     ),
@@ -1826,7 +1799,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                         dbc.Button(
                             "Multiple Cassette Analysis",
                             id="btn-landing-cross",
-                            color="info",
+                            color="primary",
                             href="/multiple-cassette",
                             className="mx-auto",
                             style={"width": "70%"},
@@ -1892,25 +1865,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         hidden = {"display": "none"}
         shown = {"display": "block"}
         return shown if n_clicks else hidden
-
-    @app.callback(
-        Output("debug-toggle-status", "children"),
-        Input("debug-toggle", "value"),
-        prevent_initial_call=True,
-    )
-    def _toggle_debug_logging(values):
-        enabled = "debug" in (values or [])
-        _set_log_level(enabled)
-        status = (
-            "Debug logging is on. Check the server console for detailed output."
-            if enabled
-            else "Debug logging is off. Enable to print debug statements to the server console."
-        )
-        if enabled:
-            logger.debug("Debug logging enabled via home page toggle.")
-        else:
-            logger.info("Debug logging disabled via home page toggle.")
-        return status
 
     @app.callback(
         Output("dim-cleaning-alert", "children"),
