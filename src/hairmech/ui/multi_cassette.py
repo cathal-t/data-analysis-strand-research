@@ -43,6 +43,34 @@ def _render_plot_component(fig, *, class_name: str | None = None, alt: str = "Pl
     )
 
 
+def _render_order_list(values: Iterable[str]):
+    values = list(values or [])
+    if not values:
+        return [
+            html.Li(
+                dbc.Alert(
+                    "Select conditions to enable plot ordering.",
+                    color="info",
+                    className="mb-0",
+                ),
+                className="list-unstyled",
+            )
+        ]
+
+    return [
+        html.Li(
+            [
+                html.Span("\u2630", className="mc-order-handle"),
+                html.Span(value),
+            ],
+            className="mc-order-item",
+            draggable="true",
+            **{"data-value": value},
+        )
+        for value in values
+    ]
+
+
 def _condition_label(_: str, condition: str) -> str:
     return condition
 
@@ -197,12 +225,11 @@ def register_multi_cassette_page(app: dash.Dash):
                     dcc.Dropdown(id="mc-control", placeholder="Select control", clearable=False),
                     html.Hr(),
                     dbc.Label("Plot order"),
-                    dcc.Dropdown(
-                        id="mc-order",
-                        multi=True,
-                        placeholder="Arrange conditions for plotting",
-                        clearable=False,
+                    html.Small(
+                        "Drag conditions to set the plotting order.",
+                        className="text-muted d-block mb-2",
                     ),
+                    html.Ul(id="mc-order-list", className="mc-order-list"),
                 ]
             ),
         ],
@@ -234,6 +261,7 @@ def register_multi_cassette_page(app: dash.Dash):
             figure_card,
             dcc.Store(id="mc-files-store"),
             dcc.Store(id="mc-summary-store"),
+            dcc.Store(id="mc-order-store"),
             dcc.Download(id="mc-dl-stats"),
         ],
         fluid=True,
@@ -279,8 +307,8 @@ def register_multi_cassette_page(app: dash.Dash):
         Output("mc-condition-selectors", "children"),
         Output("mc-control", "options"),
         Output("mc-control", "value"),
-        Output("mc-order", "options"),
-        Output("mc-order", "value"),
+        Output("mc-order-list", "children"),
+        Output("mc-order-store", "data"),
         Input("mc-files-store", "data"),
         prevent_initial_call=True,
     )
@@ -290,7 +318,6 @@ def register_multi_cassette_page(app: dash.Dash):
 
         selectors = []
         control_options: list[dict] = []
-        order_options: list[dict] = []
         order_values: list[str] = []
         seen_controls: set[str] = set()
 
@@ -327,21 +354,26 @@ def register_multi_cassette_page(app: dash.Dash):
 
                 seen_controls.add(cond_name)
                 control_options.append({"label": cond_name, "value": cond_name})
-                order_options.append({"label": cond_name, "value": cond_name})
                 order_values.append(cond_name)
 
         control_value = control_options[0]["value"] if control_options else None
-        return selectors, control_options, control_value, order_options, order_values
+        return (
+            selectors,
+            control_options,
+            control_value,
+            _render_order_list(order_values),
+            order_values,
+        )
 
     @app.callback(
         Output("mc-control", "options", allow_duplicate=True),
         Output("mc-control", "value", allow_duplicate=True),
-        Output("mc-order", "options", allow_duplicate=True),
-        Output("mc-order", "value", allow_duplicate=True),
+        Output("mc-order-list", "children", allow_duplicate=True),
+        Output("mc-order-store", "data", allow_duplicate=True),
         Input({"type": "mc-conditions", "index": ALL}, "value"),
         State("mc-files-store", "data"),
         State("mc-control", "value"),
-        State("mc-order", "value"),
+        State("mc-order-store", "data"),
         prevent_initial_call=True,
     )
     def _sync_control(selection_values, files_data, current_control, current_order):
@@ -367,7 +399,7 @@ def register_multi_cassette_page(app: dash.Dash):
             val for val in ordered_unique if val not in current_order
         ]
 
-        return options, control_value, options, order_value
+        return options, control_value, _render_order_list(order_value), order_value
 
     @app.callback(
         Output("mc-figure", "children"),
@@ -378,7 +410,7 @@ def register_multi_cassette_page(app: dash.Dash):
         Input("mc-plot", "n_clicks"),
         State({"type": "mc-conditions", "index": ALL}, "value"),
         State("mc-control", "value"),
-        State("mc-order", "value"),
+        State("mc-order-store", "data"),
         State("mc-files-store", "data"),
         prevent_initial_call=True,
     )
