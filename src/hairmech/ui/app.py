@@ -1870,21 +1870,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             className="h-100",
         )
 
-    landing_hero = html.Div(
-        [
-            html.Div(
-                [
-                    html.Img(src=logo_svg, style={"height": "32px"}),
-                ],
-                className="d-flex align-items-center gap-2",
-            ),
-        ],
-        style={
-            "padding": "18px 0",
-            "borderBottom": "1px solid rgba(0, 0, 0, 0.08)",
-        },
-    )
-
     landing_intro = html.Div(
         [
             html.H1("Data Analysis", className="fw-semibold mb-3"),
@@ -1978,7 +1963,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
     landing_layout = dbc.Container(
         [
-            landing_hero,
             landing_intro,
             landing_cards,
         ],
