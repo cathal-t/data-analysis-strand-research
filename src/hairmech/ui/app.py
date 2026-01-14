@@ -1462,6 +1462,66 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             className="mt-2 mb-3",
         )
 
+    logo_svg = (
+        "data:image/svg+xml;utf8,"
+        "<svg xmlns='http://www.w3.org/2000/svg' width='210' height='40' viewBox='0 0 210 40'>"
+        "<circle cx='18' cy='20' r='16' fill='none' stroke='%23c4181b' stroke-width='4'/>"
+        "<text x='46' y='20' font-family='Arial, sans-serif' font-size='24' "
+        "fill='%23c4181b' font-weight='700'>Strand</text>"
+        "<text x='46' y='38' font-family='Arial, sans-serif' font-size='24' "
+        "fill='%23666'>Research</text>"
+        "</svg>"
+    )
+
+    def _navbar() -> dbc.Navbar:
+        return dbc.Navbar(
+            dbc.Container(
+                [
+                    dbc.NavbarBrand(
+                        html.Img(src=logo_svg, style={"height": "32px"}),
+                        href="/",
+                    ),
+                    dbc.Nav(
+                        [
+                            dbc.NavItem(
+                                dbc.NavLink("Home", href="/", active="exact")
+                            ),
+                            dbc.DropdownMenu(
+                                label="Cleaning",
+                                nav=True,
+                                in_navbar=True,
+                                children=[
+                                    dbc.DropdownMenuItem(
+                                        "Dimensional", href="/dimensional-cleaning"
+                                    ),
+                                    dbc.DropdownMenuItem(
+                                        "Tensile", href="/tensile-cleaning"
+                                    ),
+                                ],
+                            ),
+                            dbc.NavItem(
+                                dbc.NavLink("Analysis", href="/analysis", active="exact")
+                            ),
+                            dbc.NavItem(
+                                dbc.NavLink(
+                                    "Batch",
+                                    href="/multiple-cassette",
+                                    active="exact",
+                                )
+                            ),
+                        ],
+                        className="ms-auto",
+                        navbar=True,
+                    ),
+                ],
+                fluid=True,
+            ),
+            color="light",
+            light=True,
+            sticky="top",
+            className="shadow-sm",
+        )
+
     # Upload card
     upload_card = dbc.Card(
         dbc.CardBody(
@@ -1737,16 +1797,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         style={"maxWidth": "1100px"},
     )
 
-    logo_svg = (
-        "data:image/svg+xml;utf8,"
-        "<svg xmlns='http://www.w3.org/2000/svg' width='210' height='40' viewBox='0 0 210 40'>"
-        "<circle cx='18' cy='20' r='16' fill='none' stroke='%23c4181b' stroke-width='4'/>"
-        "<text x='46' y='20' font-family='Arial, sans-serif' font-size='24' "
-        "fill='%23c4181b' font-weight='700'>Strand</text>"
-        "<text x='46' y='38' font-family='Arial, sans-serif' font-size='24' "
-        "fill='%23666'>Research</text>"
-        "</svg>"
-    )
     card_icons = {
         "cleaning": (
             "data:image/svg+xml;utf8,"
@@ -1948,6 +1998,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     app.layout = html.Div(
         [
             dcc.Location(id="url"),
+            _navbar(),
             html.Div(id="page-content"),
         ]
     )
