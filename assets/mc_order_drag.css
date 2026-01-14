@@ -1,0 +1,26 @@
+.mc-order-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.mc-order-item {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid #dee2e6;
+  border-radius: 0.25rem;
+  background: #fff;
+  cursor: grab;
+}
+
+.mc-order-item.mc-order-dragging {
+  opacity: 0.6;
+}
+
+.mc-order-handle {
+  margin-right: 0.5rem;
+  color: #6c757d;
+  cursor: grab;
+}
