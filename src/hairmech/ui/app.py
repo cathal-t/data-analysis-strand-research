@@ -1458,7 +1458,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
     def _header() -> dbc.Row:
         return dbc.Row(
-            dbc.Col(html.H3("Strand Research - Data Analysis"), width="auto"),
+            dbc.Col(html.H3("Stress-Strain Analysis"), width="auto"),
             className="mt-2 mb-3",
         )
 
