@@ -212,11 +212,14 @@ def register_multi_cassette_page(app: dash.Dash):
     actions_card = dbc.Card(
         dbc.CardBody(
             [
-                dbc.Button("Plot selected", id="mc-plot", color="primary"),
-                html.Span(className="mx-2"),
-                dbc.Input(id="mc-stats-name", value="stats.xlsx", type="text", style={"width": "200px"}),
-                html.Span(className="mx-2"),
-                dbc.Button("Download Stats", id="mc-download-stats", color="info"),
+                html.Div(
+                    [
+                        dbc.Button("Plot selected", id="mc-plot", color="primary"),
+                        dbc.Input(id="mc-stats-name", value="stats.xlsx", type="text", style={"width": "200px"}),
+                        dbc.Button("Download Stats", id="mc-download-stats", color="info"),
+                    ],
+                    className="d-flex flex-wrap align-items-center gap-2",
+                ),
                 dbc.Alert(id="mc-plot-alert", is_open=False, className="mt-3"),
             ]
         ),
