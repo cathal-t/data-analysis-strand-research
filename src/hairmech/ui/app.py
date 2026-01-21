@@ -143,6 +143,11 @@ def _bytes_to_ten(raw: bytes) -> TensileTest:
         return TensileTest(Path(tmp.name))
 
 
+def _tensile_comment(raw: bytes) -> str | None:
+    tensile = _bytes_to_ten(raw)
+    return tensile.comments
+
+
 def _parse_tensile_ascii(path: Path) -> pd.DataFrame:
     """Parse the Dia-Stron ``_tensile`` ASCII export into a tidy DataFrame."""
 
@@ -1525,35 +1530,48 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     # Upload card
     upload_card = dbc.Card(
         dbc.CardBody(
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dcc.Upload(
-                                id="upload-dim",
-                                children=dbc.Button("Upload Dimensional Data",
-                                                    color="primary", id="btn-dim"),
-                                multiple=False,
-                            ),
-                            html.Small(id="dim-msg", className="text-muted"),
-                        ],
-                        width="auto",
-                    ),
-                    dbc.Col(
-                [
-                    dcc.Upload(
-                        id="upload-ten",
-                        children=dbc.Button("Upload Tensile Data",
-                                            color="primary", id="btn-ten"),
-                        multiple=False,
-                    ),
-                    html.Small(id="ten-msg", className="text-muted"),
-                ],
-                width="auto",
-            ),
-        ],
-        className="g-3 flex-wrap",
-    )
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            [
+                                dcc.Upload(
+                                    id="upload-dim",
+                                    children=dbc.Button(
+                                        "Upload Dimensional Data",
+                                        color="primary",
+                                        id="btn-dim",
+                                    ),
+                                    multiple=False,
+                                ),
+                                html.Small(id="dim-msg", className="text-muted"),
+                            ],
+                            width="auto",
+                        ),
+                        dbc.Col(
+                            [
+                                dcc.Upload(
+                                    id="upload-ten",
+                                    children=dbc.Button(
+                                        "Upload Tensile Data",
+                                        color="primary",
+                                        id="btn-ten",
+                                    ),
+                                    multiple=False,
+                                ),
+                                html.Small(id="ten-msg", className="text-muted"),
+                            ],
+                            width="auto",
+                        ),
+                    ],
+                    className="g-3 flex-wrap",
+                ),
+                html.Div(
+                    id="tensile-comments",
+                    className="mt-2",
+                    style={"display": "none"},
+                ),
+            ]
         ),
         className="mb-3 shadow-sm",
     )
@@ -2634,6 +2652,31 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
     )
     def _ten_status(contents, filename):
         return ("success", f"Loaded: {filename}") if contents else ("primary", "")
+
+    @app.callback(
+        Output("tensile-comments", "children"),
+        Output("tensile-comments", "style"),
+        Input("upload-ten", "contents"),
+        prevent_initial_call=True,
+    )
+    def _ten_comments(contents):
+        if not contents:
+            return "", {"display": "none"}
+        comment = _tensile_comment(_b64_to_bytes(contents))
+        if not comment:
+            return "", {"display": "none"}
+        return (
+            [
+                html.Div("Comments", className="fw-semibold text-muted mb-1"),
+                html.Div(comment, className="text-body"),
+            ],
+            {
+                "padding": "0.75rem 1rem",
+                "backgroundColor": "#f8f9fa",
+                "border": "1px solid #dee2e6",
+                "borderRadius": "0.5rem",
+            },
+        )
 
     # Prime table once both files uploaded
     @app.callback(

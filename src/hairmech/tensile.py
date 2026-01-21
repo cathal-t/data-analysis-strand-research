@@ -48,10 +48,23 @@ class TensileTest:
         except Exception:
             text = path.read_text(errors="ignore")
 
+        self.comments = self._extract_comments(text)
+
         if "Sample / Slot Number" in text:
             self._init_from_ascii_blocks(text)
         else:
             self._init_from_legacy(text)
+
+    @staticmethod
+    def _extract_comments(text: str) -> str | None:
+        for line in text.splitlines():
+            match = re.match(r"\s*comments\s*:?(.*)", line, re.I)
+            if not match:
+                continue
+            comment = match.group(1).strip()
+            if comment:
+                return comment
+        return None
 
     # ------------------------------------------------------------------ #
     # Legacy reader                                                      #
