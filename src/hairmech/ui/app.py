@@ -53,6 +53,7 @@ from .multi_cassette import register_multi_cassette_page
 TICK = "✓"
 EMPTY = ""
 DEFAULT_RE = re.compile(r"Condition\s+\d+", re.I)
+AUTO_REMOVE_COEFF_THRESHOLD = 15.0
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1138,6 +1139,52 @@ def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dic
     return stats
 
 
+def _auto_select_removed_slices(
+    stats: list[dict[str, float]],
+    threshold: float = AUTO_REMOVE_COEFF_THRESHOLD,
+) -> list[str]:
+    def _coeff(val: float | None, ref: float | None) -> float | None:
+        if val is None or ref is None:
+            return None
+        if ref == 0:
+            return None
+        return abs(val - ref) / abs(ref) * 100.0
+
+    def _avg_without_current(values: list[tuple[str, float]], current: str) -> float | None:
+        peers = [val for name, val in values if name != current]
+        if not peers:
+            return None
+        return sum(peers) / len(peers)
+
+    included_mins = [
+        (s["slice"], s["min"])
+        for s in stats
+        if s.get("min") is not None and not pd.isna(s["min"])
+    ]
+    included_maxs = [
+        (s["slice"], s["max"])
+        for s in stats
+        if s.get("max") is not None and not pd.isna(s["max"])
+    ]
+
+    auto_removed: list[str] = []
+    for s in stats:
+        slice_name = s["slice"]
+        min_ref = _avg_without_current(included_mins, slice_name)
+        max_ref = _avg_without_current(included_maxs, slice_name)
+        min_coeff = _coeff(s.get("min"), min_ref)
+        max_coeff = _coeff(s.get("max"), max_ref)
+        if (min_coeff is not None and min_coeff > threshold) or (
+            max_coeff is not None and max_coeff > threshold
+        ):
+            auto_removed.append(slice_name)
+
+    if len(auto_removed) > 2:
+        return [s["slice"] for s in stats]
+
+    return auto_removed
+
+
 def _render_slice_error_table(
     record_id: int, stats: list[dict[str, float]], removed: list[str] | None
 ) -> dbc.Table:
@@ -1244,13 +1291,14 @@ def _make_slice_error_table(record_id: int, df: pd.DataFrame, slice_cols: list[s
     if not stats:
         return html.Div()
 
+    removed = _auto_select_removed_slices(stats)
     return html.Div(
         [
             dcc.Store(id={"type": "dim-slice-data", "record": record_id}, data=stats),
-            dcc.Store(id={"type": "dim-slice-store", "record": record_id}, data=[]),
+            dcc.Store(id={"type": "dim-slice-store", "record": record_id}, data=removed),
             html.H6("Slice extremes", className="mt-4"),
             html.Div(
-                _render_slice_error_table(record_id, stats, []),
+                _render_slice_error_table(record_id, stats, removed),
                 id={"type": "dim-slice-table", "record": record_id},
             ),
         ]
