@@ -23,7 +23,6 @@ import platform
 import re
 import subprocess
 import tempfile
-import time
 from collections import OrderedDict
 from dataclasses import asdict
 from io import BytesIO
@@ -850,30 +849,6 @@ def _parse_export_directory(value: str | None) -> Path:
         return Path(parent_str)
 
     raise ValueError("Please provide an absolute export directory path.")
-
-
-def _parse_uvc_file_path(value: str | None) -> Path:
-    if value is None:
-        raise ValueError("Please provide the absolute path to the .uvc file.")
-
-    value = value.strip().strip('"')
-    if not value:
-        raise ValueError("Please provide the absolute path to the .uvc file.")
-
-    if not _looks_like_absolute(value):
-        raise ValueError("Please provide an absolute path to the .uvc file.")
-
-    path = Path(value)
-    if path.suffix.lower() != ".uvc":
-        raise ValueError("Please provide a .uvc file path.")
-
-    if not path.exists():
-        raise ValueError("The provided .uvc path does not exist on this machine.")
-
-    if not path.is_file():
-        raise ValueError("The provided .uvc path is not a file.")
-
-    return path
 
 
 def _store_uvc_file(raw: bytes, filename: str) -> tuple[Path, Path | None]:
@@ -1747,32 +1722,11 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             dbc.Card(
                 dbc.CardBody(
                     [
-                        html.H4("Dimensional UVC File", className="card-title"),
+                        html.H4("Upload Dimensional UVC File", className="card-title"),
                         html.P(
-                            "Upload a .uvc file or provide a local file path. The file will be processed "
+                            "Drag and drop or click to browse for a .uvc file. The file will be processed "
                             "using the UvWin dimensional export tool.",
                             className="text-muted",
-                        ),
-                        html.Div(
-                            [
-                                dbc.Label("UVC source", html_for="dim-uvc-source"),
-                                dbc.RadioItems(
-                                    id="dim-uvc-source",
-                                    options=[
-                                        {
-                                            "label": "Upload a .uvc file",
-                                            "value": "upload",
-                                        },
-                                        {
-                                            "label": "Use a local .uvc file path",
-                                            "value": "local",
-                                        },
-                                    ],
-                                    value="upload",
-                                    inline=True,
-                                ),
-                            ],
-                            className="mb-3",
                         ),
                         html.Div(
                             [
@@ -1787,51 +1741,30 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                                     "Provide the absolute folder path where dimensional exports should be saved.",
                                 ),
                             ],
-                            id="dim-export-dir-container",
                             className="mb-3",
                         ),
-                        html.Div(
-                            [
-                                dbc.Label("Local UVC file path", html_for="dim-local-uvc-path"),
-                                dbc.Input(
-                                    id="dim-local-uvc-path",
-                                    type="text",
-                                    placeholder='e.g. G:\\Data\\example.uvc',
-                                    debounce=True,
-                                ),
-                                dbc.FormText(
-                                    "Exports will be saved next to the local UVC file.",
-                                ),
-                            ],
-                            id="dim-local-path-container",
-                            className="mb-3",
-                            style={"display": "none"},
-                        ),
-                        html.Div(
-                            dcc.Upload(
-                                id="upload-dim-cleaning",
-                                accept=".uvc",
-                                multiple=False,
-                                children=html.Div(
-                                    [
-                                        "Drag and drop or ",
-                                        html.A("browse", className="fw-semibold"),
-                                        " for a .uvc file",
-                                    ],
-                                    className="py-4",
-                                ),
-                                style={
-                                    "width": "100%",
-                                    "height": "120px",
-                                    "lineHeight": "120px",
-                                    "borderWidth": "2px",
-                                    "borderStyle": "dashed",
-                                    "borderRadius": "10px",
-                                    "textAlign": "center",
-                                    "backgroundColor": "#fafafa",
-                                },
+                        dcc.Upload(
+                            id="upload-dim-cleaning",
+                            accept=".uvc",
+                            multiple=False,
+                            children=html.Div(
+                                [
+                                    "Drag and drop or ",
+                                    html.A("browse", className="fw-semibold"),
+                                    " for a .uvc file",
+                                ],
+                                className="py-4",
                             ),
-                            id="dim-upload-container",
+                            style={
+                                "width": "100%",
+                                "height": "120px",
+                                "lineHeight": "120px",
+                                "borderWidth": "2px",
+                                "borderStyle": "dashed",
+                                "borderRadius": "10px",
+                                "textAlign": "center",
+                                "backgroundColor": "#fafafa",
+                            },
                             className="mb-3",
                         ),
                         dcc.Store(id="dim-cleaning-data"),
@@ -2174,19 +2107,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         return shown if n_clicks else hidden
 
     @app.callback(
-        Output("dim-upload-container", "style"),
-        Output("dim-local-path-container", "style"),
-        Output("dim-export-dir-container", "style"),
-        Input("dim-uvc-source", "value"),
-    )
-    def _toggle_dimensional_source(source_mode: str):
-        hidden = {"display": "none"}
-        shown = {"display": "block"}
-        if source_mode == "local":
-            return hidden, shown, hidden
-        return shown, hidden, shown
-
-    @app.callback(
         Output("dim-cleaning-alert", "children"),
         Output("dim-cleaning-alert", "color"),
         Output("dim-cleaning-alert", "is_open"),
@@ -2195,55 +2115,32 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         Output("dim-export-directory", "data"),
         Output("dim-removed-summary-container", "style"),
         Input("upload-dim-cleaning", "contents"),
-        Input("dim-uvc-source", "value"),
-        Input("dim-local-uvc-path", "value"),
+        Input("dim-export-dir", "value"),
         State("upload-dim-cleaning", "filename"),
-        State("dim-export-dir", "value"),
         prevent_initial_call=True,
     )
-    def _process_dimensional_cleaning(
-        contents, source_mode, local_path, filename, preferred_dir
-    ):
-        start_time = time.perf_counter()
-        upload_time = 0.0
-        export_time = 0.0
-        parse_time = 0.0
-        preferred_path = None
-        if source_mode == "local":
-            if not local_path:
-                raise PreventUpdate
-            try:
-                uvc_path = _parse_uvc_file_path(local_path)
-            except ValueError as exc:
-                return str(exc), "danger", True, [], None, None, {"display": "none"}
-            original_dir = uvc_path.parent
-            preferred_path = uvc_path.parent
-        else:
-            if not contents or not filename:
-                raise PreventUpdate
+    def _process_dimensional_cleaning(contents, preferred_dir, filename):
+        if not contents or not filename:
+            raise PreventUpdate
 
-            try:
-                preferred_path = _parse_export_directory(preferred_dir)
-            except ValueError as exc:
-                return str(exc), "danger", True, [], None, None, {"display": "none"}
+        try:
+            preferred_path = _parse_export_directory(preferred_dir)
+        except ValueError as exc:
+            return str(exc), "danger", True, [], None, None, {"display": "none"}
 
-            upload_start = time.perf_counter()
-            raw = _b64_to_bytes(contents)
-            uvc_path, original_dir = _store_uvc_file(raw, filename)
-            upload_time = time.perf_counter() - upload_start
+        raw = _b64_to_bytes(contents)
+        uvc_path, original_dir = _store_uvc_file(raw, filename)
 
         export_path, _ = _resolve_export_target(
             uvc_path, original_dir=original_dir, preferred_dir=preferred_path
         )
 
-        export_start = time.perf_counter()
         success, message, produced_paths = _run_uvwin_export(
             uvc_path,
             original_dir=original_dir,
             preferred_dir=preferred_path,
             modes=("dimensional",),
         )
-        export_time = time.perf_counter() - export_start
 
         plots: list = []
         records: dict[int, pd.DataFrame] | None = None
@@ -2274,9 +2171,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
         if success and dimensional_path.exists():
             try:
-                parse_start = time.perf_counter()
                 records, slice_cols = parse_dimensional_export(dimensional_path)
-                parse_time = time.perf_counter() - parse_start
             except Exception as exc:
                 plots = [
                     dbc.Alert(
@@ -2290,14 +2185,6 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 plots = _build_dimensional_plot_children(records, slice_cols)
                 if records:
                     summary_style = {"display": "block"}
-
-        total_time = time.perf_counter() - start_time
-        timing_note = (
-            f" (timing: upload {upload_time:.2f}s, export {export_time:.2f}s, "
-            f"parse {parse_time:.2f}s, total {total_time:.2f}s)"
-        )
-        if success:
-            message = f"{message}{timing_note}"
 
         return (
             message,
