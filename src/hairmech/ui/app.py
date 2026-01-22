@@ -1124,6 +1124,27 @@ def _render_plot_component(
     return graph_component
 
 
+AUTO_REMOVE_COEFF_THRESHOLD = 15.0
+AUTO_REMOVE_MAX_SLICES = 2
+
+
+def _coeff_error(val: float | None, ref: float | None) -> float | None:
+    if val is None or ref is None:
+        return None
+    if pd.isna(val) or pd.isna(ref):
+        return None
+    if ref == 0:
+        return None
+    return abs(val - ref) / abs(ref) * 100.0
+
+
+def _avg_without_current(values: list[tuple[str, float]], current: str) -> float | None:
+    peers = [val for name, val in values if name != current]
+    if not peers:
+        return None
+    return sum(peers) / len(peers)
+
+
 def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dict[str, float]]:
     cols = [c for c in slice_cols if c in df.columns]
     stats: list[dict[str, float]] = []
@@ -1138,6 +1159,57 @@ def _compute_slice_extremes(df: pd.DataFrame, slice_cols: list[str]) -> list[dic
     return stats
 
 
+def _compute_slice_coefficients(
+    stats: list[dict[str, float]], removed: set[str]
+) -> dict[str, float | None]:
+    included = [s for s in stats if s["slice"] not in removed]
+    included_mins = [
+        (s["slice"], s["min"])
+        for s in included
+        if s.get("min") is not None and not pd.isna(s["min"])
+    ]
+    included_maxs = [
+        (s["slice"], s["max"])
+        for s in included
+        if s.get("max") is not None and not pd.isna(s["max"])
+    ]
+
+    coefficients: dict[str, float | None] = {}
+    for s in included:
+        slice_name = s["slice"]
+        min_ref = _avg_without_current(included_mins, slice_name)
+        max_ref = _avg_without_current(included_maxs, slice_name)
+        min_coeff = _coeff_error(s.get("min"), min_ref)
+        max_coeff = _coeff_error(s.get("max"), max_ref)
+        coeffs = [c for c in (min_coeff, max_coeff) if c is not None]
+        coefficients[slice_name] = max(coeffs) if coeffs else None
+    return coefficients
+
+
+def _auto_remove_slices(stats: list[dict[str, float]]) -> list[str]:
+    removed: set[str] = set()
+    while True:
+        coefficients = _compute_slice_coefficients(stats, removed)
+        candidate = None
+        candidate_coeff = None
+        for slice_name, coeff in coefficients.items():
+            if coeff is None:
+                continue
+            if candidate_coeff is None or coeff > candidate_coeff:
+                candidate = slice_name
+                candidate_coeff = coeff
+        if candidate_coeff is None or candidate_coeff <= AUTO_REMOVE_COEFF_THRESHOLD:
+            break
+        removed.add(candidate)
+        if len(removed) > AUTO_REMOVE_MAX_SLICES:
+            break
+
+    if len(removed) > AUTO_REMOVE_MAX_SLICES:
+        removed = {s["slice"] for s in stats}
+
+    return [s["slice"] for s in stats if s["slice"] in removed]
+
+
 def _render_slice_error_table(
     record_id: int, stats: list[dict[str, float]], removed: list[str] | None
 ) -> dbc.Table:
@@ -1148,13 +1220,6 @@ def _render_slice_error_table(
             return "–"
         return f"{value:.2f}{suffix}"
 
-    def _coeff(val: float | None, ref: float | None) -> float | None:
-        if val is None or ref is None:
-            return None
-        if ref == 0:
-            return None
-        return abs(val - ref) / abs(ref) * 100.0
-
     def _style_pct(value: float | None) -> dict:
         if value is None:
             return {}
@@ -1163,12 +1228,6 @@ def _render_slice_error_table(
         return {}
 
     included = [s for s in stats if s["slice"] not in removed]
-
-    def _avg_without_current(values: list[tuple[str, float]], current: str) -> float | None:
-        peers = [val for name, val in values if name != current]
-        if not peers:
-            return None
-        return sum(peers) / len(peers)
 
     included_mins = [
         (s["slice"], s["min"])
@@ -1201,8 +1260,8 @@ def _render_slice_error_table(
         max_val = s["max"]
         min_ref = _avg_without_current(included_mins, slice_name)
         max_ref = _avg_without_current(included_maxs, slice_name)
-        min_coeff = _coeff(min_val, min_ref)
-        max_coeff = _coeff(max_val, max_ref)
+        min_coeff = _coeff_error(min_val, min_ref)
+        max_coeff = _coeff_error(max_val, max_ref)
         is_removed = slice_name in removed
         button_label = "Restore slice" if is_removed else "Remove slice"
         button_color = "secondary" if is_removed else "danger"
@@ -1244,13 +1303,17 @@ def _make_slice_error_table(record_id: int, df: pd.DataFrame, slice_cols: list[s
     if not stats:
         return html.Div()
 
+    auto_removed = _auto_remove_slices(stats)
     return html.Div(
         [
             dcc.Store(id={"type": "dim-slice-data", "record": record_id}, data=stats),
-            dcc.Store(id={"type": "dim-slice-store", "record": record_id}, data=[]),
+            dcc.Store(
+                id={"type": "dim-slice-store", "record": record_id},
+                data=auto_removed,
+            ),
             html.H6("Slice extremes", className="mt-4"),
             html.Div(
-                _render_slice_error_table(record_id, stats, []),
+                _render_slice_error_table(record_id, stats, auto_removed),
                 id={"type": "dim-slice-table", "record": record_id},
             ),
         ]
