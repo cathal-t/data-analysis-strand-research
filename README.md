@@ -1,6 +1,6 @@
-# Hairmech: Data Analysis for Strand Research
+# Data Analysis Platform for Strand Research
 
-Hairmech is a data visualization and analysis toolkit for Dia-Stron tensile
+This project is a data visualization and analysis toolkit for Dia-Stron tensile
 experiments. It ingests exported dimensional and tensile `.txt` files, cleans
 slot metadata, computes summary metrics, and writes Excel/HTML reports. A Dash
 front-end mirrors the notebook workflow for interactive exploration.
