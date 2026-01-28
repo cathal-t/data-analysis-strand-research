@@ -1,96 +1,101 @@
-# Data Analysis Application for Strand Research
-Data visualization and analysis toolkit for Dia-Stron tensile experiments.
-The package ingests exported dimensional and tensile `.txt` files, cleans
-slot metadata, computes summary metrics, and writes Excel/HTML reports. A
-Dash front-end mirrors the notebook workflow for interactive exploration.
+# Hairmech: Data Analysis for Strand Research
+
+Hairmech is a data visualization and analysis toolkit for Dia-Stron tensile
+experiments. It ingests exported dimensional and tensile `.txt` files, cleans
+slot metadata, computes summary metrics, and writes Excel/HTML reports. A Dash
+front-end mirrors the notebook workflow for interactive exploration.
+
+## Features
+
+- Parse Dia-Stron dimensional and tensile exports.
+- Clean and normalize slot metadata.
+- Compute summary metrics and statistics for experiments.
+- Export results to Excel and HTML reports.
+- Explore data interactively with a Dash UI.
+
+## Requirements
+
+- Python 3.11
+- [Poetry](https://python-poetry.org/) for dependency management
 
 ## Installation
 
 ```bash
-# 1. Clone the repo and cd into it
+# 1. Clone the repo and enter it
 git clone https://github.com/cathal-t/data-analysis-strand-research.git
 cd data-analysis-strand-research
 
-# 2. Poetry install
+# 2. Install dependencies
 poetry install
-
-# 3. Launch 
-poetry run hairmech serve
 ```
 
-The package installs a `hairmech` console script. All commands below assume
-an active Poetry shell or any environment with the project dependencies.
-
-## Installation (Mac)
+### macOS setup (Homebrew)
 
 ```bash
-# 1. Install Homebrew (if you don’t have it)
+# 1. Install Homebrew (if needed)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# 2. Add Homebrew to your shell (zsh is the default in modern macOS)
+# 2. Add Homebrew to your shell
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
-# 3. Install Python 3 (Homebrew will give you the latest 3.x)
+# 3. Install Python and Poetry
 brew install python
-
-# 4. Install Poetry
 brew install poetry
 
-# 5. Clone the repo and cd into it
+# 4. Clone and install dependencies
 git clone https://github.com/cathal-t/data-analysis-strand-research.git
 cd data-analysis-strand-research
-
-# 6. Poetry install
 poetry install
+```
 
-# 7. Launch 
+## Quick start
+
+Launch the Dash UI:
+
+```bash
 poetry run hairmech serve
 ```
 
+The UI is available at `http://127.0.0.1:8050`.
+
 ## CLI usage
 
-Launch the interactive Dash UI to explore the same pipeline in a
-browser:
+```bash
+# Start the Dash app
+poetry run hairmech serve
+```
+
+## Terminal launcher (macOS)
+
+Create a double-clickable `.command` file that launches the app:
 
 ```bash
- cd data-analysis-strand-research
- git checkout main
- git pull
- poetry run hairmech serve
-```
-## Terminal usage (Mac)
-```bash
-cd ~/Desktop
 cat > run_hairmech.command << 'EOF'
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # Double-click this .command file to open Terminal, cd into your repo, and
-# start the Hair-mech Dash app via Poetry.
+# start the Hairmech Dash app via Poetry.
 # ─────────────────────────────────────────────────────────────────────────────
 # Change this to the path where you’ve cloned the repo:
 REPO_PATH="data-analysis-strand-research"
-# 1. cd into the repo
+
 cd "$REPO_PATH" || {
   echo ":x: Could not cd into $REPO_PATH"
   exit 1
 }
-# 2. Make sure you’re on main and up to date
+
 git checkout main
 git pull
-# 3. Launch the app
 poetry run hairmech serve
 EOF
 chmod +x run_hairmech.command
 ```
 
-The UI lives at `http://127.0.0.1:8050` and provides upload controls plus
-tabs for overlay and violin visualisations.
-
 ## Project layout
 
 ```
-hairmech/
+.
 ├─ src/hairmech/
 │  ├─ cli.py                 # click entry-point for run/serve commands
 │  ├─ analysis.py            # metric calculations & stats helpers
@@ -117,3 +122,13 @@ hairmech/
    └─ test_ui_app.py         # UI layout helpers
 ```
 
+## Development
+
+```bash
+# Run tests
+poetry run pytest
+```
+
+## License
+
+See [LICENSE](LICENSE).
