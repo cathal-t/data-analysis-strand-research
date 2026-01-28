@@ -6,6 +6,10 @@ body,
   background-color: #ffffff;
 }
 
+.header-navbar.navbar {
+  background-color: rgba(248, 249, 250, 0.9);
+}
+
 .btn-primary,
 .btn-secondary {
   background-color: #1a1a1a;
