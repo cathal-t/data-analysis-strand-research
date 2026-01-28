@@ -1587,7 +1587,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             color="light",
             light=True,
             sticky="top",
-            className="shadow-sm",
+            className="shadow-sm header-navbar",
         )
 
     # Upload card
