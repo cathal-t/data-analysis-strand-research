@@ -1532,12 +1532,12 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
 
     logo_svg = (
         "data:image/svg+xml;utf8,"
-        "<svg xmlns='http://www.w3.org/2000/svg' width='360' height='92' viewBox='0 0 360 92'>"
-        "<circle cx='58' cy='46' r='41' fill='none' stroke='%23c40000' stroke-width='6'/>"
-        "<text x='106' y='46' font-family='Arial, sans-serif' font-size='62' "
-        "fill='%23c40000' font-weight='700' dominant-baseline='central'>Strand</text>"
-        "<text x='106' y='80' font-family='Arial, sans-serif' font-size='50' "
-        "fill='%23000000' font-weight='600'>Research</text>"
+        "<svg xmlns='http://www.w3.org/2000/svg' width='210' height='40' viewBox='0 0 210 40'>"
+        "<circle cx='18' cy='20' r='16' fill='none' stroke='%23c4181b' stroke-width='4'/>"
+        "<text x='46' y='20' font-family='Arial, sans-serif' font-size='24' "
+        "fill='%23c4181b' font-weight='700'>Strand</text>"
+        "<text x='46' y='38' font-family='Arial, sans-serif' font-size='24' "
+        "fill='%23666'>Research</text>"
         "</svg>"
     )
 
@@ -1546,7 +1546,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             dbc.Container(
                 [
                     dbc.NavbarBrand(
-                        html.Img(src=logo_svg, style={"height": "42px"}),
+                        html.Img(src=logo_svg, style={"height": "32px"}),
                         href="/",
                     ),
                     dbc.Nav(
