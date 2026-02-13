@@ -197,6 +197,12 @@ class TensileTest:
                 parts = split_fields(lines[j])
                 if len(parts) >= 6:
                     # parts: Record, Index, Position(µm), Strain(%), Time(s), Force(N)
+                    row_record = slot
+                    try:
+                        row_record = int(parts[0])
+                    except ValueError:
+                        pass
+
                     try:
                         strain_pct = float(parts[3])
                         force_N = float(parts[5])
@@ -206,7 +212,7 @@ class TensileTest:
 
                     records.append(
                         {
-                            "Record": slot,  # downstream grouping key (aligns to slot)
+                            "Record": row_record,
                             "Slot": slot,
                             "Strain_pct": strain_pct,
                             "raw_stress": force_N,  # Newtons in ASCII export
@@ -231,7 +237,8 @@ class TensileTest:
     # ------------------------------------------------------------------ #
     def per_slot(self):
         """Yield (slot_number, DataFrame) pairs in ascending slot order."""
-        for slot, grp in self.df.groupby("Record", sort=True):
+        group_key = "Slot" if "Slot" in self.df.columns else "Record"
+        for slot, grp in self.df.groupby(group_key, sort=True):
             yield slot, grp.reset_index(drop=True)
 
     def stress_strain(self, df_slot: pd.DataFrame, area_um2: float) -> pd.DataFrame:
