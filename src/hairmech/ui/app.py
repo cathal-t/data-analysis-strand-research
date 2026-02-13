@@ -920,8 +920,8 @@ def _run_uvwin_export(
         Optional directories used to resolve the export destination.
     modes:
         Iterable of export modes to request from UvWin. Supported values are
-        ``"dimensional"``, ``"gpdsr"``, and ``"tensile"``. When ``None`` both
-        dimensional and GPDSR exports are generated.
+        ``"dimensional"``, ``"dimensional_ascii"``, ``"gpdsr"``, and
+        ``"tensile"``. When ``None`` all exports are generated.
     """
 
     if platform.system() != "Windows":
@@ -945,6 +945,9 @@ def _run_uvwin_export(
     ascii_output = output_file.with_name(
         f"{uvc_path.stem}_ascii{output_file.suffix}"
     )
+    dimensional_ascii_output = output_file.with_name(
+        f"{output_file.stem}_dimensional_ascii{output_file.suffix}"
+    )
 
     try:
         output_parent.mkdir(parents=True, exist_ok=True)
@@ -956,10 +959,11 @@ def _run_uvwin_export(
         )
 
     uvc_abs = uvc_path.resolve()
-    available_exports: dict[str, Path] = {
-        "dimensional": output_file,
-        "gpdsr": gpdsr_output,
-        "tensile": ascii_output,
+    available_exports: dict[str, tuple[str, Path]] = {
+        "dimensional": ("dimensional", output_file),
+        "dimensional_ascii": ("tensile", dimensional_ascii_output),
+        "gpdsr": ("gpdsr", gpdsr_output),
+        "tensile": ("tensile", ascii_output),
     }
 
     if modes is None:
@@ -975,12 +979,15 @@ def _run_uvwin_export(
             return False, "No export modes were requested.", {}
         modes_to_run = tuple(normalized)
 
-    exports = [(mode, available_exports[mode]) for mode in modes_to_run]
+    exports = [
+        (mode, available_exports[mode][0], available_exports[mode][1])
+        for mode in modes_to_run
+    ]
 
     messages: list[str] = []
     produced: dict[str, Path] = {}
 
-    for export_name, export_path in exports:
+    for export_key, export_name, export_path in exports:
         export_abs = export_path.resolve()
 
         print(
@@ -1012,11 +1019,11 @@ def _run_uvwin_export(
             stderr = exc.stderr.strip() if exc.stderr else ""
             stdout = exc.stdout.strip() if exc.stdout else ""
             details = stderr or stdout or str(exc)
-            return False, f"{export_name.capitalize()} export failed: {details}", {}
+            return False, f"{export_key.replace('_', ' ').capitalize()} export failed: {details}", {}
 
         messages.append(result.stdout.strip())
         if export_path.exists():
-            produced[export_name] = export_path.resolve()
+            produced[export_key] = export_path.resolve()
 
     if produced:
         produced_values = list(produced.values())
@@ -2178,7 +2185,7 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
             uvc_path,
             original_dir=original_dir,
             preferred_dir=preferred_path,
-            modes=("dimensional",),
+            modes=("dimensional", "dimensional_ascii"),
         )
 
         plots: list = []
@@ -2187,16 +2194,29 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
         expected_gpdsr_path = export_path.with_name(
             f"{export_path.stem}_gpdsr{export_path.suffix}"
         )
+        expected_dimensional_ascii_path = export_path.with_name(
+            f"{export_path.stem}_dimensional_ascii{export_path.suffix}"
+        )
         export_dir_data: dict[str, object] | None = None
         serialized_data: dict[str, object] | None = None
         summary_style = {"display": "none"}
 
         dimensional_path = produced_paths.get("dimensional", export_path)
+        dimensional_ascii_path = produced_paths.get(
+            "dimensional_ascii", expected_dimensional_ascii_path
+        )
+        warning_messages: list[str] = []
 
         if success:
+            if not dimensional_ascii_path.exists():
+                warning_messages.append(
+                    "Dimensional ASCII export was not found; continuing without dimensional metadata extraction."
+                )
+
             export_dir_data = {
                 "directory": str(export_path.parent),
                 "output": str(dimensional_path),
+                "dimensional_ascii": str(dimensional_ascii_path),
                 "gpdsr": str(
                     produced_paths.get("gpdsr", expected_gpdsr_path)
                 ),
@@ -2207,6 +2227,9 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                     mode: str(path) for mode, path in produced_paths.items()
                 },
             }
+            export_dir_data["exports"].setdefault(
+                "dimensional_ascii", str(dimensional_ascii_path)
+            )
 
         if success and dimensional_path.exists():
             try:
@@ -2225,9 +2248,14 @@ def build_dash_app(root_dir: str | Path | None = None) -> Dash:
                 if records:
                     summary_style = {"display": "block"}
 
+        alert_color = "success" if success else "danger"
+        if warning_messages and success:
+            message = "\n".join([message, *warning_messages])
+            alert_color = "warning"
+
         return (
             message,
-            ("success" if success else "danger"),
+            alert_color,
             True,
             plots,
             serialized_data,
