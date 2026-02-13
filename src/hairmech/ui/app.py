@@ -757,14 +757,30 @@ def _remap_tensile_slots(
     tensile: TensileTest, slot_map: dict[int, int] | None
 ) -> tuple[TensileTest, list[int]]:
     df = tensile.df.copy()
-    df["Slot"] = df["Record"].map(slot_map) if slot_map else df["Record"]
+    existing_slots = (
+        pd.to_numeric(df["Slot"], errors="coerce") if "Slot" in df.columns else None
+    )
+    has_usable_slot = existing_slots is not None and existing_slots.notna().any()
+
+    if slot_map is None:
+        if has_usable_slot:
+            df["Slot"] = existing_slots
+        else:
+            df["Slot"] = pd.to_numeric(df["Record"], errors="coerce")
+    else:
+        mapped_slots = pd.to_numeric(df["Record"].map(slot_map), errors="coerce")
+        fallback_slots = (
+            existing_slots
+            if has_usable_slot
+            else pd.to_numeric(df["Record"], errors="coerce")
+        )
+        df["Slot"] = mapped_slots.combine_first(fallback_slots)
 
     unmapped: list[int] = []
     if slot_map:
-        missing_mask = df["Slot"].isna()
+        missing_mask = pd.to_numeric(df["Record"].map(slot_map), errors="coerce").isna()
         if missing_mask.any():
             unmapped = sorted(df.loc[missing_mask, "Record"].dropna().unique().astype(int))
-            df.loc[missing_mask, "Slot"] = df.loc[missing_mask, "Record"]
 
     df["Slot"] = pd.to_numeric(df["Slot"], errors="coerce")
     try:

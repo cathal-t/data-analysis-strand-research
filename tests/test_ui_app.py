@@ -126,6 +126,45 @@ def test_slot_mapped_tensile_preserves_mode_for_stress():
     assert result["stress_Pa"].iloc[0] == pytest.approx(expected_stress)
 
 
+def test_remap_tensile_slots_preserves_existing_ascii_slots_without_slot_map():
+    base = TensileTest.__new__(TensileTest)
+    base.df = pd.DataFrame(
+        {
+            "Record": [101, 102, 200],
+            "Slot": [2, 2, 5],
+            "Strain_pct": [0.0, 0.1, 0.2],
+            "raw_stress": [1.0, 1.1, 1.2],
+        }
+    )
+    base.is_mpa = False
+    base.mode = "N"
+
+    mapped, unmapped = app._remap_tensile_slots(base, None)
+
+    assert unmapped == []
+    assert list(mapped.df["Slot"]) == [2, 2, 5]
+    assert sorted(slot for slot, _ in mapped.per_slot()) == [2, 5]
+
+
+def test_remap_tensile_slots_preserves_existing_slot_when_mapping_missing():
+    base = TensileTest.__new__(TensileTest)
+    base.df = pd.DataFrame(
+        {
+            "Record": [101, 102, 200],
+            "Slot": [2, 2, 5],
+            "Strain_pct": [0.0, 0.1, 0.2],
+            "raw_stress": [1.0, 1.1, 1.2],
+        }
+    )
+    base.is_mpa = False
+    base.mode = "N"
+
+    mapped, unmapped = app._remap_tensile_slots(base, {101: 8, 200: 9})
+
+    assert unmapped == [102]
+    assert list(mapped.df["Slot"]) == [8, 2, 9]
+
+
 def test_render_slot_alignment_uses_requested_headers():
     dim_data = SimpleNamespace(slot_records={1: [10, 11]})
     tensile = SimpleNamespace(df=pd.DataFrame({"Slot": [1], "Record": [100]}))
@@ -162,6 +201,25 @@ def test_render_slot_alignment_rows_cover_matched_and_unmatched_slots():
     assert ["10, 11", "1", "100, 101", "1", "1 → 1"] in row_values
     assert ["20", "2", "—", "Unknown", "2 → Unknown"] in row_values
     assert ["—", "Unknown", "300", "3", "Unknown → 3"] in row_values
+
+
+def test_render_slot_alignment_uses_original_tensile_slot_values_when_present():
+    dim_data = SimpleNamespace(slot_records={8: [10]})
+    tensile = SimpleNamespace(
+        df=pd.DataFrame(
+            {
+                "Slot": [2, 2],
+                "Record": [101, 102],
+            }
+        )
+    )
+
+    card = app._render_slot_alignment(dim_data, tensile)
+    table = card.children.children[-1]
+    rows = table.children[1].children
+    row_values = [[str(cell.children) for cell in row.children] for row in rows]
+
+    assert ["—", "Unknown", "101, 102", "2", "Unknown → 2"] in row_values
 
 
 def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
