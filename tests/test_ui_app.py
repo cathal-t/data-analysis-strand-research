@@ -107,7 +107,7 @@ def test_parse_export_directory_requires_value(value):
 def test_slot_mapped_tensile_preserves_mode_for_stress():
     base = TensileTest.__new__(TensileTest)
     base.df = pd.DataFrame(
-        {"Record": [1], "Strain_pct": [50.0], "raw_stress": [2.0]}
+        {"Record": [1], "Slot": [1], "Strain_pct": [50.0], "raw_stress": [2.0]}
     )
     base.is_mpa = False
     base.mode = "N"
@@ -162,7 +162,29 @@ def test_remap_tensile_slots_preserves_existing_slot_when_mapping_missing():
     mapped, unmapped = app._remap_tensile_slots(base, {101: 8, 200: 9})
 
     assert unmapped == [102]
-    assert list(mapped.df["Slot"]) == [8, 2, 9]
+    assert list(mapped.df["Record"]) == [101, 200]
+    assert list(mapped.df["Slot"]) == [8, 9]
+
+
+def test_remap_tensile_slots_excludes_invalid_existing_slots_without_record_fallback():
+    base = TensileTest.__new__(TensileTest)
+    base.df = pd.DataFrame(
+        {
+            "Record": [101, 102, 117],
+            "Slot": [2, "bad", None],
+            "Strain_pct": [0.0, 0.1, 0.2],
+            "raw_stress": [1.0, 1.1, 1.2],
+        }
+    )
+    base.is_mpa = False
+    base.mode = "N"
+
+    mapped, excluded = app._remap_tensile_slots(base, None)
+
+    assert excluded == [102, 117]
+    assert list(mapped.df["Record"]) == [101]
+    assert list(mapped.df["Slot"]) == [2]
+    assert mapped.slot_exclusion_message == "Unknown (excluded): Record(s) 102, 117"
 
 
 def test_render_slot_alignment_uses_requested_headers():
@@ -220,6 +242,27 @@ def test_render_slot_alignment_uses_original_tensile_slot_values_when_present():
     row_values = [[str(cell.children) for cell in row.children] for row in rows]
 
     assert ["—", "Unknown", "101, 102", "2", "Unknown → 2"] in row_values
+
+
+def test_render_slot_alignment_shows_unknown_exclusion_message():
+    dim_data = SimpleNamespace(slot_records={2: [10]})
+    base = TensileTest.__new__(TensileTest)
+    base.df = pd.DataFrame(
+        {
+            "Record": [101, 102, 117],
+            "Slot": [2, "bad", None],
+            "Strain_pct": [0.0, 0.1, 0.2],
+            "raw_stress": [1.0, 1.1, 1.2],
+        }
+    )
+    base.is_mpa = False
+    base.mode = "N"
+
+    mapped, _ = app._remap_tensile_slots(base, None)
+    card = app._render_slot_alignment(dim_data, mapped)
+    card_body_children = card.children.children
+
+    assert card_body_children[1].children == "Unknown (excluded): Record(s) 102, 117"
 
 
 def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
