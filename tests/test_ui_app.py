@@ -126,6 +126,44 @@ def test_slot_mapped_tensile_preserves_mode_for_stress():
     assert result["stress_Pa"].iloc[0] == pytest.approx(expected_stress)
 
 
+def test_render_slot_alignment_uses_requested_headers():
+    dim_data = SimpleNamespace(slot_records={1: [10, 11]})
+    tensile = SimpleNamespace(df=pd.DataFrame({"Slot": [1], "Record": [100]}))
+
+    card = app._render_slot_alignment(dim_data, tensile)
+    table = card.children.children[-1]
+    header_cells = table.children[0].children.children
+
+    assert [cell.children for cell in header_cells] == [
+        "Dimensional Record(s)",
+        "Dimensional Slot",
+        "Tensile Record(s)",
+        "Tensile Slot",
+        "Dimensional Slot → Tensile Slot",
+    ]
+
+
+def test_render_slot_alignment_rows_cover_matched_and_unmatched_slots():
+    dim_data = SimpleNamespace(slot_records={1: [10, 11], 2: [20]})
+    tensile = SimpleNamespace(
+        df=pd.DataFrame(
+            {
+                "Slot": [1, 1, 3],
+                "Record": [100, 101, 300],
+            }
+        )
+    )
+
+    card = app._render_slot_alignment(dim_data, tensile)
+    table = card.children.children[-1]
+    rows = table.children[1].children
+    row_values = [[str(cell.children) for cell in row.children] for row in rows]
+
+    assert ["10, 11", "1", "100, 101", "1", "1 → 1"] in row_values
+    assert ["20", "2", "—", "Unknown", "2 → Unknown"] in row_values
+    assert ["—", "Unknown", "300", "3", "Unknown → 3"] in row_values
+
+
 def test_parse_gpdsr_mapping_deduplicates_by_slot(tmp_path):
     gpdsr_path = tmp_path / "example_gpdsr.txt"
     gpdsr_path.write_text(

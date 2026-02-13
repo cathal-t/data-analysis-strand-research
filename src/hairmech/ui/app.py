@@ -1449,27 +1449,50 @@ def _render_slot_alignment(dim_data: DimensionalData, tensile: TensileTest) -> h
             className="mb-0",
         )
 
-    header = html.Thead(
-        html.Tr(
-            [
-                html.Th("Slot"),
-                html.Th("Dimensional Record(s)"),
-                html.Th("Tensile Slot → Record(s)"),
-            ]
-        )
-    )
-    rows = []
+    def _fmt_records(records: list[int]) -> str:
+        return ", ".join(str(r) for r in records) if records else "—"
+
+    def _fmt_slot(slot: int | None) -> str:
+        if slot is None:
+            return "Unknown"
+        return str(slot)
+
+    row_by_context: OrderedDict[str, dict[str, str]] = OrderedDict()
     for slot in all_slots:
         dim_vals = dim_records.get(slot, [])
         ten_vals = ten_records.get(slot, [])
+        dim_slot = slot if slot in dim_records else None
+        ten_slot = slot if slot in ten_records else None
+        context_key = f"dim:{_fmt_slot(dim_slot)}|ten:{_fmt_slot(ten_slot)}"
+        row_by_context[context_key] = {
+            "dimensional_records": _fmt_records(dim_vals),
+            "dimensional_slot": _fmt_slot(dim_slot),
+            "tensile_records": _fmt_records(ten_vals),
+            "tensile_slot": _fmt_slot(ten_slot),
+            "mapping_label": f"{_fmt_slot(dim_slot)} → {_fmt_slot(ten_slot)}",
+        }
+
+    header = html.Thead(
+        html.Tr(
+            [
+                html.Th("Dimensional Record(s)"),
+                html.Th("Dimensional Slot"),
+                html.Th("Tensile Record(s)"),
+                html.Th("Tensile Slot"),
+                html.Th("Dimensional Slot → Tensile Slot"),
+            ]
+        )
+    )
+    rows: list[html.Tr] = []
+    for row_data in row_by_context.values():
         rows.append(
             html.Tr(
                 [
-                    html.Td(slot),
-                    html.Td(", ".join(str(r) for r in dim_vals) or "—"),
-                    html.Td(
-                        ", ".join(f"{slot} → {rec}" for rec in ten_vals) if ten_vals else "—"
-                    ),
+                    html.Td(row_data["dimensional_records"]),
+                    html.Td(row_data["dimensional_slot"]),
+                    html.Td(row_data["tensile_records"]),
+                    html.Td(row_data["tensile_slot"]),
+                    html.Td(row_data["mapping_label"]),
                 ]
             )
         )
