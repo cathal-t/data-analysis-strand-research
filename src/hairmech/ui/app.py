@@ -757,26 +757,32 @@ def _remap_tensile_slots(
     tensile: TensileTest, slot_map: dict[int, int] | None
 ) -> tuple[TensileTest, list[int]]:
     df = tensile.df.copy()
+    existing_slots = (
+        pd.to_numeric(df["Slot"], errors="coerce") if "Slot" in df.columns else None
+    )
+    has_usable_slot = existing_slots is not None and existing_slots.notna().any()
+
     if slot_map is None:
-        if "Slot" in df.columns:
-            final_slots = pd.to_numeric(df["Slot"], errors="coerce")
+        if has_usable_slot:
+            df["Slot"] = existing_slots
         else:
-            final_slots = pd.Series(np.nan, index=df.index, dtype=float)
+            df["Slot"] = pd.to_numeric(df["Record"], errors="coerce")
     else:
-        final_slots = pd.to_numeric(df["Record"].map(slot_map), errors="coerce")
-
-    df["Slot"] = final_slots
-    invalid_mask = df["Slot"].isna()
-    excluded_records: list[int] = []
-    if invalid_mask.any() and "Record" in df.columns:
-        excluded_records = sorted(
-            pd.to_numeric(df.loc[invalid_mask, "Record"], errors="coerce")
-            .dropna()
-            .astype(int)
-            .unique()
-            .tolist()
+        mapped_slots = pd.to_numeric(df["Record"].map(slot_map), errors="coerce")
+        fallback_slots = (
+            existing_slots
+            if has_usable_slot
+            else pd.to_numeric(df["Record"], errors="coerce")
         )
+        df["Slot"] = mapped_slots.combine_first(fallback_slots)
 
+    unmapped: list[int] = []
+    if slot_map:
+        missing_mask = pd.to_numeric(df["Record"].map(slot_map), errors="coerce").isna()
+        if missing_mask.any():
+            unmapped = sorted(df.loc[missing_mask, "Record"].dropna().unique().astype(int))
+
+    df["Slot"] = pd.to_numeric(df["Slot"], errors="coerce")
     try:
         df["Slot"] = df["Slot"].astype(int)
     except (TypeError, ValueError):  # pragma: no cover - defensive
@@ -784,14 +790,7 @@ def _remap_tensile_slots(
     df = df.dropna(subset=["Slot"])
 
     mapped = _SlotMappedTensile(tensile, df)
-    mapped.excluded_slot_records = excluded_records
-    mapped.slot_exclusion_marker = "Unknown"
-    if excluded_records:
-        records_text = ", ".join(str(record) for record in excluded_records)
-        mapped.slot_exclusion_message = f"Unknown (excluded): Record(s) {records_text}"
-    else:
-        mapped.slot_exclusion_message = ""
-    return mapped, excluded_records
+    return mapped, unmapped
 
 
 def _looks_like_absolute(path_str: str) -> bool:
@@ -1519,11 +1518,6 @@ def _render_slot_alignment(dim_data: DimensionalData, tensile: TensileTest) -> h
     card_children: list[Component] = [
         html.H5("Slot / Record alignment", className="mb-3"),
     ]
-    exclusion_message = str(getattr(tensile, "slot_exclusion_message", "") or "")
-    if exclusion_message:
-        card_children.append(
-            dbc.Alert(exclusion_message, color="warning", className="py-2 mb-2")
-        )
     if ten_slot_note:
         card_children.append(html.Small(ten_slot_note, className="text-muted d-block mb-2"))
     card_children.append(table)
